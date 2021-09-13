@@ -71,26 +71,8 @@ int st_poll(struct pollfd *pds, int npds, st_utime_t timeout)
     return -1;
   }
 
-#ifndef USE_POLL
-  for (pd = pds; pd < epd; pd++) {
-    if (pd->events & POLLIN) {
-      FD_SET(pd->fd, &_ST_FD_READ_SET);
-      _ST_FD_READ_CNT(pd->fd)++;
-    }
-    if (pd->events & POLLOUT) {
-      FD_SET(pd->fd, &_ST_FD_WRITE_SET);
-      _ST_FD_WRITE_CNT(pd->fd)++;
-    }
-    if (pd->events & POLLPRI) {
-      FD_SET(pd->fd, &_ST_FD_EXCEPTION_SET);
-      _ST_FD_EXCEPTION_CNT(pd->fd)++;
-    }
-    if (_ST_MAX_OSFD < pd->fd)
-      _ST_MAX_OSFD = pd->fd;
-  }
-#else
-  _ST_OSFD_CNT += npds;
-#endif  /* !USE_POLL */
+  if ((*_st_eventsys->pollset_add)(pds, npds) < 0)
+    return -1;
 
   pq.pds = pds;
   pq.npds = npds;
@@ -107,25 +89,7 @@ int st_poll(struct pollfd *pds, int npds, st_utime_t timeout)
   if (pq.on_ioq) {
     /* If we timed out, the pollq might still be on the ioq. Remove it */
     _ST_DEL_IOQ(pq);
-#ifndef USE_POLL
-    for (pd = pds; pd < epd; pd++) {
-      if (pd->events & POLLIN) {
-	if (--_ST_FD_READ_CNT(pd->fd) == 0)
-	  FD_CLR(pd->fd, &_ST_FD_READ_SET);
-      }
-      if (pd->events & POLLOUT) {
-	if (--_ST_FD_WRITE_CNT(pd->fd) == 0)
-	  FD_CLR(pd->fd, &_ST_FD_WRITE_SET);
-      }
-      if (pd->events & POLLPRI) {
-	if (--_ST_FD_EXCEPTION_CNT(pd->fd) == 0)
-	  FD_CLR(pd->fd, &_ST_FD_EXCEPTION_SET);
-      }
-    }
-#else
-    _ST_OSFD_CNT -= npds;
-    ST_ASSERT(_ST_OSFD_CNT >= 0);
-#endif  /* !USE_POLL */
+    (*_st_eventsys->pollset_del)(pds, npds);
   } else {
     /* Count the number of ready descriptors */
     for (pd = pds; pd < epd; pd++) {
@@ -176,6 +140,9 @@ int st_init(void)
     return 0;
   }
 
+  /* We can ignore return value here */
+  st_set_eventsys(ST_EVENTSYS_DEFAULT);
+
   if (_st_io_init() < 0)
     return -1;
 
@@ -188,15 +155,9 @@ int st_init(void)
   ST_INIT_CLIST(&_ST_THREADQ);
 #endif
 
-#ifndef USE_POLL
-  _st_this_vp.maxfd = -1;
-#else
-  _ST_POLLFDS = (struct pollfd *) malloc(ST_MIN_POLLFDS_SIZE *
-					 sizeof(struct pollfd));
-  if (!_ST_POLLFDS)
+  if ((*_st_eventsys->init)() < 0)
     return -1;
-  _ST_POLLFDS_SIZE = ST_MIN_POLLFDS_SIZE;
-#endif  /* !USE_POLL */
+
   _st_this_vp.pagesize = getpagesize();
   _st_this_vp.last_clock = st_utime();
 
@@ -231,6 +192,23 @@ int st_init(void)
 }
 
 
+#ifdef ST_SWITCH_CB
+st_switch_cb_t st_set_switch_in_cb(st_switch_cb_t cb)
+{
+  st_switch_cb_t ocb = _st_this_vp.switch_in_cb;
+  _st_this_vp.switch_in_cb = cb;
+  return ocb;
+}
+
+st_switch_cb_t st_set_switch_out_cb(st_switch_cb_t cb)
+{
+  st_switch_cb_t ocb = _st_this_vp.switch_out_cb;
+  _st_this_vp.switch_out_cb = cb;
+  return ocb;
+}
+#endif
+
+
 /*
  * Start function for the idle thread
  */
@@ -241,7 +219,7 @@ void *_st_idle_thread_start(void *arg)
 
   while (_st_active_count > 0) {
     /* Idle vp till I/O is ready or the smallest timeout expired */
-    _st_vp_idle();
+    _ST_VP_IDLE();
 
     /* Check sleep queue for expired threads */
     _st_vp_check_clock();
@@ -256,268 +234,6 @@ void *_st_idle_thread_start(void *arg)
   /* NOTREACHED */
   return NULL;
 }
-
-
-#ifndef USE_POLL
-/* select() is used to poll file descriptors */
-void _st_vp_idle(void)
-{
-  struct timeval timeout, *tvp;
-  fd_set r, w, e;
-  fd_set *rp, *wp, *ep;
-  int nfd, pq_max_osfd, osfd;
-  _st_clist_t *q;
-  st_utime_t min_timeout;
-  _st_pollq_t *pq;
-  int notify;
-  struct pollfd *pds, *epds;
-  short events, revents;
-
-  /*
-   * Assignment of fd_sets
-   */
-  r = _ST_FD_READ_SET;
-  w = _ST_FD_WRITE_SET;
-  e = _ST_FD_EXCEPTION_SET;
-
-  rp = &r;
-  wp = &w;
-  ep = &e;
-
-  if (_ST_SLEEPQ == NULL) {
-    tvp = NULL;
-  } else {
-    min_timeout = (_ST_SLEEPQ->due <= _ST_LAST_CLOCK) ? 0 :
-      (_ST_SLEEPQ->due - _ST_LAST_CLOCK);
-    timeout.tv_sec  = (int) (min_timeout / 1000000);
-    timeout.tv_usec = (int) (min_timeout % 1000000);
-    tvp = &timeout;
-  }
-
-  /* Check for I/O operations */
-  nfd = select(_ST_MAX_OSFD + 1, rp, wp, ep, tvp);
-
-  /* Notify threads that are associated with the selected descriptors */
-  if (nfd > 0) {
-    _ST_MAX_OSFD = -1;
-    for (q = _ST_IOQ.next; q != &_ST_IOQ; q = q->next) {
-      pq = _ST_POLLQUEUE_PTR(q);
-      notify = 0;
-      epds = pq->pds + pq->npds;
-      pq_max_osfd = -1;
-      
-      for (pds = pq->pds; pds < epds; pds++) {
-	osfd = pds->fd;
-	events = pds->events;
-	revents = 0;
-	ST_ASSERT(osfd >= 0 || events == 0);
-	if ((events & POLLIN) && FD_ISSET(osfd, rp)) {
-	  revents |= POLLIN;
-	}
-	if ((events & POLLOUT) && FD_ISSET(osfd, wp)) {
-	  revents |= POLLOUT;
-	}
-	if ((events & POLLPRI) && FD_ISSET(osfd, ep)) {
-	  revents |= POLLPRI;
-	}
-	pds->revents = revents;
-	if (revents) {
-	  notify = 1;
-	}
-	if (osfd > pq_max_osfd) {
-	  pq_max_osfd = osfd;
-	}
-      }
-      if (notify) {
-	ST_REMOVE_LINK(&pq->links);
-	pq->on_ioq = 0;
-	/*
-	 * Decrement the count of descriptors for each descriptor/event
-	 * because this I/O request is being removed from the ioq
-	 */
-	for (pds = pq->pds; pds < epds; pds++) {
-	  osfd = pds->fd;
-	  events = pds->events;
-	  if (events & POLLIN) {
-	    if (--_ST_FD_READ_CNT(osfd) == 0) {
-	      FD_CLR(osfd, &_ST_FD_READ_SET);
-	    }
-	  }
-	  if (events & POLLOUT) {
-	    if (--_ST_FD_WRITE_CNT(osfd) == 0) {
-	      FD_CLR(osfd, &_ST_FD_WRITE_SET);
-	    }
-	  }
-	  if (events & POLLPRI) {
-	    if (--_ST_FD_EXCEPTION_CNT(osfd) == 0) {
-	      FD_CLR(osfd, &_ST_FD_EXCEPTION_SET);
-	    }
-	  }
-	}
-
-	if (pq->thread->flags & _ST_FL_ON_SLEEPQ)
-	  _ST_DEL_SLEEPQ(pq->thread);
-	pq->thread->state = _ST_ST_RUNNABLE;
-	_ST_ADD_RUNQ(pq->thread);
-      } else {
-	if (_ST_MAX_OSFD < pq_max_osfd)
-	  _ST_MAX_OSFD = pq_max_osfd;
-      }
-    }
-  } else if (nfd < 0) {
-    /*
-     * It can happen when a thread closes file descriptor
-     * that is being used by some other thread
-     */
-    if (errno == EBADF)
-      _st_find_bad_fd();
-  }
-}
-
-
-void _st_find_bad_fd(void)
-{
-  _st_clist_t *q;
-  _st_pollq_t *pq;
-  int notify;
-  struct pollfd *pds, *epds;
-  int pq_max_osfd, osfd;
-  short events;
-
-  _ST_MAX_OSFD = -1;
-
-  for (q = _ST_IOQ.next; q != &_ST_IOQ; q = q->next) {
-    pq = _ST_POLLQUEUE_PTR(q);
-    notify = 0;
-    epds = pq->pds + pq->npds;
-    pq_max_osfd = -1;
-      
-    for (pds = pq->pds; pds < epds; pds++) {
-      osfd = pds->fd;
-      pds->revents = 0;
-      ST_ASSERT(osfd >= 0 || pds->events == 0);
-      if (pds->events == 0)
-	continue;
-      if (fcntl(osfd, F_GETFL, 0) < 0) {
-	pds->revents = POLLNVAL;
-	notify = 1;
-      }
-      if (osfd > pq_max_osfd) {
-	pq_max_osfd = osfd;
-      }
-    }
-
-    if (notify) {
-      ST_REMOVE_LINK(&pq->links);
-      pq->on_ioq = 0;
-      /*
-       * Decrement the count of descriptors for each descriptor/event
-       * because this I/O request is being removed from the ioq
-       */
-      for (pds = pq->pds; pds < epds; pds++) {
-	osfd = pds->fd;
-	events = pds->events;
-	if (events & POLLIN) {
-	  if (--_ST_FD_READ_CNT(osfd) == 0) {
-	    FD_CLR(osfd, &_ST_FD_READ_SET);
-	  }
-	}
-	if (events & POLLOUT) {
-	  if (--_ST_FD_WRITE_CNT(osfd) == 0) {
-	    FD_CLR(osfd, &_ST_FD_WRITE_SET);
-	  }
-	}
-	if (events & POLLPRI) {
-	  if (--_ST_FD_EXCEPTION_CNT(osfd) == 0) {
-	    FD_CLR(osfd, &_ST_FD_EXCEPTION_SET);
-	  }
-	}
-      }
-
-      if (pq->thread->flags & _ST_FL_ON_SLEEPQ)
-	_ST_DEL_SLEEPQ(pq->thread);
-      pq->thread->state = _ST_ST_RUNNABLE;
-      _ST_ADD_RUNQ(pq->thread);
-    } else {
-      if (_ST_MAX_OSFD < pq_max_osfd)
-	_ST_MAX_OSFD = pq_max_osfd;
-    }
-  }
-}
-
-#else  /* !USE_POLL */
-/* poll() is used to poll file descriptors */
-void _st_vp_idle(void)
-{
-  int timeout, nfd;
-  _st_clist_t *q;
-  st_utime_t min_timeout;
-  _st_pollq_t *pq;
-  struct pollfd *pds, *epds, *pollfds;
-
-  /*
-   * Build up the array of struct pollfd to wait on.
-   * If existing array is not big enough, release it and allocate a new one.
-   */
-  ST_ASSERT(_ST_OSFD_CNT >= 0);
-  if (_ST_OSFD_CNT > _ST_POLLFDS_SIZE) {
-    free(_ST_POLLFDS);
-    _ST_POLLFDS = (struct pollfd *) malloc((_ST_OSFD_CNT + 10) *
-					   sizeof(struct pollfd));
-    ST_ASSERT(_ST_POLLFDS != NULL);
-    _ST_POLLFDS_SIZE = _ST_OSFD_CNT + 10;
-  }
-  pollfds = _ST_POLLFDS;
-
-  /* Gather all descriptors into one array */
-  for (q = _ST_IOQ.next; q != &_ST_IOQ; q = q->next) {
-    pq = _ST_POLLQUEUE_PTR(q);
-    memcpy(pollfds, pq->pds, sizeof(struct pollfd) * pq->npds);
-    pollfds += pq->npds;
-  }
-  ST_ASSERT(pollfds <= _ST_POLLFDS + _ST_POLLFDS_SIZE);
-
-  if (_ST_SLEEPQ == NULL) {
-    timeout = -1;
-  } else {
-    if (_ST_SLEEPQ->due <= _st_this_vp.last_clock)
-      min_timeout = 0;
-    else
-      min_timeout = _ST_SLEEPQ->due - _st_this_vp.last_clock;
-    timeout = (int) (min_timeout / 1000);
-  }
-
-  /* Check for I/O operations */
-  nfd = poll(_ST_POLLFDS, _ST_OSFD_CNT, timeout);
-
-  /* Notify threads that are associated with the selected descriptors */
-  if (nfd > 0) {
-    pollfds = _ST_POLLFDS;
-    for (q = _ST_IOQ.next; q != &_ST_IOQ; q = q->next) {
-      pq = _ST_POLLQUEUE_PTR(q);
-      epds = pollfds + pq->npds;
-      for (pds = pollfds; pds < epds; pds++)
-	if (pds->revents && pds->fd >= 0)   /* poll ignores negative fd's */
-	  break;
-      if (pds < epds) {
-	memcpy(pq->pds, pollfds, sizeof(struct pollfd) * pq->npds);
-        ST_REMOVE_LINK(&pq->links);
-        pq->on_ioq = 0;
-
-        if (pq->thread->flags & _ST_FL_ON_SLEEPQ)
-          _ST_DEL_SLEEPQ(pq->thread);
-        pq->thread->state = _ST_ST_RUNNABLE;
-        _ST_ADD_RUNQ(pq->thread);
-
-	_ST_OSFD_CNT -= pq->npds;
-	ST_ASSERT(_ST_OSFD_CNT >= 0);
-      }
-      pollfds = epds;
-    }
-  }
-}
-
-#endif  /* !USE_POLL */
 
 
 void st_thread_exit(void *retval)
@@ -654,6 +370,7 @@ static _st_thread_t **heap_insert(_st_thread_t *thread) {
   thread->left = thread->right = NULL;
   return p;
 }
+
 
 /*
  * Delete "thread" from the timeout heap.

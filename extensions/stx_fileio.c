@@ -135,7 +135,8 @@ fileio_data_destructor(void *dat_in)
         file_reader_cb_t cb;
         cb.offset = 0;
         cb.nbytes = 0;
-        st_write(dat->control_fd, (char *)&cb, sizeof(cb), (st_utime_t)-1);
+        st_write(dat->control_fd, (char *)&cb, sizeof(cb),
+	 ST_UTIME_NO_TIMEOUT);
         waitpid(dat->pid, NULL, 0);
         st_netfd_close(dat->control_fd);
         st_netfd_close(dat->data_fd);

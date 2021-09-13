@@ -43,6 +43,16 @@ calls should be used instead of <TT>setjmp(3)/longjmp(3)</TT> (that is
 the calls that manipulate only the stack and registers and do <I>not</I>
 save and restore the process's signal mask).</LI>
 <P>
+Starting with glibc 2.4 on Linux the opacity of the <TT>jmp_buf</TT> data
+structure is enforced by <TT>setjmp(3)/longjmp(3)</TT> so the
+<TT>jmp_buf</TT> ingredients cannot be accessed directly anymore (unless
+special environmental variable LD_POINTER_GUARD is set before application
+execution). To avoid dependency on custom environment, the State Threads
+library provides <TT>setjmp/longjmp</TT> replacement functions for
+all Intel CPU architectures. Other CPU architectures can also be easily
+supported (the <TT>setjmp/longjmp</TT> source code is widely available for
+many CPU architectures).
+<P>
 <LI><I>High resolution time function</I>: Some platforms (IRIX, Solaris)
 provide a high resolution time function based on the free running hardware
 counter.  This function returns the time counted since some arbitrary
@@ -74,21 +84,23 @@ defined.</LI>
 </UL>
 <P>
 All machine-dependent feature test macros should be defined in the
-<TT>md.h</TT> header file.
+<TT>md.h</TT> header file. The assembly code for <TT>setjmp/longjmp</TT>
+replacement functions for all CPU architectures should be placed in
+the <TT>md.S</TT> file.
 <P>
 The current version of the library is ported to:
 <UL>
   <LI>IRIX 6.x (both 32 and 64 bit)</LI>
   <LI>Linux (kernel 2.x and glibc 2.x) on x86, Alpha, MIPS and MIPSEL,
   SPARC, ARM, PowerPC, 68k, HPPA, S390, IA-64, and Opteron (AMD-64)</LI>
-  <LI>Solaris 2.x (SunOS 5.x) on x86, SPARC, and SPARC-64</LI>
+  <LI>Solaris 2.x (SunOS 5.x) on x86, AMD64, SPARC, and SPARC-64</LI>
   <LI>AIX 4.x</LI>
   <LI>HP-UX 11 (both 32 and 64 bit)</LI>
   <LI>Tru64/OSF1</LI>
-  <LI>FreeBSD on x86 and Alpha</LI>
-  <LI>OpenBSD on x86, Alpha, and SPARC</LI>
+  <LI>FreeBSD on x86, AMD64, and Alpha</LI>
+  <LI>OpenBSD on x86, AMD64, Alpha, and SPARC</LI>
   <LI>NetBSD on x86, Alpha, SPARC, and VAX</LI>
-  <LI>Darwin (MacOS X)</LI>
+  <LI>MacOS X (Darwin) on PowerPC (32 bit) and Intel (both 32 and 64 bit) [universal]</LI>
   <LI>Cygwin</LI>
 </UL>
 <P>
@@ -134,7 +146,7 @@ void *sig_process(void *arg)
 
   for ( ; ; ) {
     /* Read the next signal from the pipe */
-    st_read(nfd, &signo, sizeof(int), -1);
+    st_read(nfd, &signo, sizeof(int), ST_UTIME_NO_TIMEOUT);
 
     /* Process signal synchronously */
     switch (signo) {
@@ -297,7 +309,7 @@ int ipc_sem_wait(ipc_sem_t *sem)
   char c;
 
   /* Read one byte from the pipe */
-  if (st_read(sem->rdfd, &c, 1, -1) != 1)
+  if (st_read(sem->rdfd, &c, 1, ST_UTIME_NO_TIMEOUT) != 1)
     return -1;
 
   return 0;
@@ -308,7 +320,7 @@ int ipc_sem_post(ipc_sem_t *sem)
 {
   char c;
 
-  if (st_write(sem->wrfd, &c, 1, -1) != 1)
+  if (st_write(sem->wrfd, &c, 1, ST_UTIME_NO_TIMEOUT) != 1)
     return -1;
 
   return 0;
@@ -409,8 +421,10 @@ retrying simply use a larger timeout in the first place.
 <P>The largest valid timeout value is platform-dependent and may be
 significantly less than <TT>INT_MAX</TT> seconds for <TT>select()</TT>
 or <TT>INT_MAX</TT> milliseconds for <TT>poll()</TT>.  Generally, you
-should not use timeouts exceeding several hours.  Use -1 as a special
-value to indicate infinite timeout or indefinite sleep.
+should not use timeouts exceeding several hours.  Use
+<tt>ST_UTIME_NO_TIMEOUT</tt> (<tt>-1</tt>) as a special value to
+indicate infinite timeout or indefinite sleep.  Use
+<tt>ST_UTIME_NO_WAIT</tt> (<tt>0</tt>) to indicate no waiting at all.
 
 <P>
 <HR>

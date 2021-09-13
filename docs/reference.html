@@ -13,13 +13,24 @@
 <DL><DD><A HREF=#mutex_t>st_mutex_t</A></DD></DL>
 <DL><DD><A HREF=#utime_t>st_utime_t</A></DD></DL>
 <DL><DD><A HREF=#netfd_t>st_netfd_t</A></DD></DL>
+<DL><DD><A HREF=#switch_cb_t>st_switch_cb_t</A></DD></DL>
 <P>
 <DD><A HREF=#errors><B>Error Handling</B></A></DD>
 <P>
 <DD><A HREF=#init><B>Library Initialization</B></A></DD>
 <P>
 <DL><DD><A HREF=#st_init>st_init()</A></DD></DL>
-<DL><DD><A HREF=#st_getfdlimit>st_getfdlimit()</A></DD></DL>
+<DL><DD><A HREF=#getfdlimit>st_getfdlimit()</A></DD></DL>
+<DL><DD><A HREF=#set_eventsys>st_set_eventsys()</A></DD></DL>
+<DL><DD><A HREF=#get_eventsys>st_get_eventsys()</A></DD></DL>
+<DL><DD><A HREF=#get_eventsys_name>st_get_eventsys_name()</A></DD></DL>
+<DL><DD><A HREF=#set_utime_function>st_set_utime_function()</A></DD></DL>
+<DL><DD><A HREF=#timecache_set>st_timecache_set()</A></DD></DL>
+<DL><DD><A HREF=#randomize_stacks>st_randomize_stacks()</A></DD></DL>
+<P>
+<DL><DD><A HREF=#switch_cb_t><B>st_switch_cb_t</B> type</A></DD></DL>
+<DL><DD><A HREF=#set_switch_in_cb>st_set_switch_in_cb()</A></DD></DL>
+<DL><DD><A HREF=#set_switch_out_cb>st_set_switch_out_cb()</A></DD></DL>
 <P>
 <DD><A HREF=#threads><B>Thread Control and Identification</B></A></DD>
 <P>
@@ -61,7 +72,7 @@
 <P>
 <DL><DD><A HREF=#utime_t><B>st_utime_t</B> type</A></DD></DL>
 <DL><DD><A HREF=#utime>st_utime()</A></DD></DL>
-<DL><DD><A HREF=#utime_func>st_set_utime_function()</A></DD></DL>
+<DL><DD><A HREF=#set_utime_function>st_set_utime_function()</A></DD></DL>
 <DL><DD><A HREF=#timecache_set>st_timecache_set()</A></DD></DL>
 <DL><DD><A HREF=#time>st_time()</A></DD></DL>
 <P>
@@ -84,11 +95,16 @@
 <DL><DD><A HREF=#read>st_read()</A></DD></DL>
 <DL><DD><A HREF=#read_fully>st_read_fully()</A></DD></DL>
 <DL><DD><A HREF=#read_resid>st_read_resid()</A></DD></DL>
+<DL><DD><A HREF=#readv>st_readv()</A></DD></DL>
+<DL><DD><A HREF=#readv_resid>st_readv_resid()</A></DD></DL>
 <DL><DD><A HREF=#write>st_write()</A></DD></DL>
 <DL><DD><A HREF=#write_resid>st_write_resid()</A></DD></DL>
 <DL><DD><A HREF=#writev>st_writev()</A></DD></DL>
+<DL><DD><A HREF=#writev_resid>st_writev_resid()</A></DD></DL>
 <DL><DD><A HREF=#recvfrom>st_recvfrom()</A></DD></DL>
 <DL><DD><A HREF=#sendto>st_sendto()</A></DD></DL>
+<DL><DD><A HREF=#recvmsg>st_recvmsg()</A></DD></DL>
+<DL><DD><A HREF=#sendmsg>st_sendmsg()</A></DD></DL>
 <P>
 <DL><DD><A HREF=#open>st_open()</A></DD></DL>
 <DL><DD><A HREF=#poll>st_poll()</A></DD></DL>
@@ -245,6 +261,31 @@ identified by a pointer to an opaque data structure.
 <HR>
 <P>
 
+<A NAME="switch_cb_t">
+<H4>st_switch_cb_t</H4>
+</A>
+Context switch callback function type.
+<P>
+<H5>Syntax</H5>
+
+<PRE>
+#include &lt;st.h&gt;
+
+typedef void (*st_switch_cb_t)(void);
+</PRE>
+<P>
+<H5>Description</H5>
+
+This datatype is a convenience type for describing a pointer
+to a function that will be called when a thread is set to stop
+or set to run.
+This feature is available only when <TT>ST_SWITCH_CB</TT> is defined
+in <TT>&lt;st.h&gt;</TT>.
+
+<P>
+<HR>
+<P>
+
 <A NAME="errors">
 <H2>Error Handling</H2>
 </A>
@@ -267,7 +308,15 @@ standard error output.
 <P>
 <DL>
 <DD><A HREF=#st_init>st_init()</A></DD>
-<DD><A HREF=#st_getfdlimit>st_getfdlimit()</A></DD>
+<DD><A HREF=#getfdlimit>st_getfdlimit()</A></DD>
+<DD><A HREF=#set_eventsys>st_set_eventsys()</A></DD>
+<DD><A HREF=#get_eventsys>st_get_eventsys()</A></DD>
+<DD><A HREF=#get_eventsys_name>st_get_eventsys_name()</A></DD>
+<P>
+These functions operate on a callback function of type
+<A HREF=#switch_cb_t><B>st_switch_cb_t</B></A>:
+<DD><A HREF=#set_switch_in_cb>st_set_switch_in_cb()</A></DD>
+<DD><A HREF=#set_switch_out_cb>st_set_switch_out_cb()</A></DD>
 </DL>
 <P>
 <HR>
@@ -302,7 +351,7 @@ Among other things, this function limits the number of open file descriptors
 to the OS imposed per-process maximum number or, if <TT>select(2)</TT> is
 used, to <TT>FD_SETSIZE</TT>, whichever is less (<TT>getrlimit(2)</TT>).
 This limit can be
-retrieved by <A HREF=#st_getfdlimit>st_getfdlimit()</A>. It also sets the
+retrieved by <A HREF=#getfdlimit>st_getfdlimit()</A>. It also sets the
 disposition of the <TT>SIGPIPE</TT> signal to <TT>SIG_IGN</TT> (to be ignored)
 (<TT>signal(5)</TT>).
 <P>
@@ -319,7 +368,7 @@ new thread creation or the first context switch, respectively.
 <P>
 <HR>
 <P>
-<A NAME="st_getfdlimit">
+<A NAME="getfdlimit">
 <H4>st_getfdlimit()</H4>
 </A>
 Returns the maximum number of file descriptors that the calling process
@@ -344,6 +393,182 @@ If this function is called before the library is successfully initialized by
 <H5>Description</H5>
 This function returns the limit on the number of open file descriptors which
 is set by the <A HREF=#st_init>st_init()</A> function.
+<P>
+<HR>
+<P>
+
+<A NAME="set_eventsys">
+<H4>st_set_eventsys()</H4>
+</A>
+Sets event notification mechanism.
+<P>
+<H5>Syntax</H5>
+
+<PRE>
+#include &lt;st.h&gt;
+
+int st_set_eventsys(int eventsys);
+</PRE>
+<P>
+<H5>Parameters</H5>
+<TT>st_set_eventsys()</TT> has the following parameter:<P>
+<TT>eventsys</TT><P>
+An integer value identifying selected event notification mechanism. The
+following values are defined in the <TT>st.h</TT> header file:
+<P>
+<TABLE BORDER=0 CELLPADDING=5 CELLSPACING=15>
+<TR>
+<TD VALIGN=TOP><TT>ST_EVENTSYS_DEFAULT</TT></TD>
+<TD>Use default event notification mechanism. Usually it's <TT>select(2)</TT>
+but if the library was compiled with the <TT>USE_POLL</TT> macro defined
+then the default is <TT>poll(2)</TT>.</TD>
+</TR>
+<TR>
+<TD VALIGN=TOP><TT>ST_EVENTSYS_SELECT</TT></TD>
+<TD>Use <TT>select(2)</TT> as an event notification mechanism.</TD>
+</TR>
+<TD VALIGN=TOP><TT>ST_EVENTSYS_POLL</TT></TD>
+<TD>Use <TT>poll(2)</TT> as an event notification mechanism.</TD>
+</TR>
+<TD VALIGN=TOP><TT>ST_EVENTSYS_ALT</TT></TD>
+<TD>Use an alternative event notification mechanism. The actual
+mechanism selected depends on OS support. For example, <TT>epoll(4)</TT>
+will be used on Linux if supported and <TT>kqueue(2)</TT> will be used
+on FreeBSD/OpenBSD. If the OS supports no alternative event
+notification mechanism, setting <TT>ST_EVENTSYS_ALT</TT> has no effect
+and the <TT>ST_EVENTSYS_DEFAULT</TT> mechanism will be used.</TD>
+</TR>
+</TABLE>
+<P>
+<H5>Returns</H5>
+Upon successful completion, a value of <TT>0</TT> is returned.
+Otherwise, a value of <TT>-1</TT> is returned and <TT>errno</TT> is set
+to indicate the error:<P>
+<TABLE BORDER=0 CELLSPACING=15>
+<TR><TD><TT>EINVAL</TT></TD>
+<TD>
+The supplied <TT>eventsys</TT> parameter has an invalid value.
+</TD></TR>
+<TR><TD><TT>EBUSY</TT></TD>
+<TD>
+The event notification mechanism has already been set.
+</TD></TR>
+</TABLE>
+<P>
+<H5>Description</H5>
+This function sets the event notification mechanism that will be used by
+the State Threads library. To have any effect, it must be called
+<i>before</i> the <A HREF=#st_init>st_init()</A> function which performs
+the actual initialization. If <TT>st_set_eventsys()</TT> is not called,
+<A HREF=#st_init>st_init()</A> will set the <TT>ST_EVENTSYS_DEFAULT</TT>
+mechanism. The mechanism cannot be changed once set.
+<P>
+There are no strict rules for selecting an event notification
+mechanism.  The "best" one depends on how your application behaves.
+Try a few to see which one works best for you.  As a rule of
+thumb, you should use the <TT>ST_EVENTSYS_ALT</TT> mechanism if your
+application deals with a very large number of network connections of
+which only a few are active at once.
+<P>
+<HR>
+<P>
+<A NAME="get_eventsys">
+<H4>st_get_eventsys()</H4>
+</A>
+Returns the integer value identifying the event notification mechanism
+being used by the State Threads library.
+<P>
+<H5>Syntax</H5>
+
+<PRE>
+#include &lt;st.h&gt;
+
+int st_get_eventsys(void);
+</PRE>
+<P>
+<H5>Parameters</H5>
+None.
+<P>
+<H5>Returns</H5>
+The integer value identifying the current event notification mechanism.
+This value can be one of the following (see <A
+HREF=#set_eventsys>st_set_eventsys()</A>):
+<TT>ST_EVENTSYS_SELECT</TT>, <TT>ST_EVENTSYS_POLL</TT>, or
+<TT>ST_EVENTSYS_ALT</TT>. Future versions of the library may return other
+values. If a mechanism hasn't been set yet, a value of <TT>-1</TT> is returned.
+<P>
+<H5>Description</H5>
+This function returns the integer value identifying the event notification
+mechanism which is actually being used by the State Threads library.
+<P>
+<HR>
+<P>
+<A NAME="get_eventsys_name">
+<H4>st_get_eventsys_name()</H4>
+</A>
+Returns the name of the event notification mechanism being used by the
+State Threads library.
+<P>
+<H5>Syntax</H5>
+
+<PRE>
+#include &lt;st.h&gt;
+
+const char *st_get_eventsys_name(void);
+</PRE>
+<P>
+<H5>Parameters</H5>
+None.
+<P>
+<H5>Returns</H5>
+The string identifying the current event notification mechanism. If a
+mechanism hasn't been set yet (see <A
+HREF=#set_eventsys>st_set_eventsys()</A>), an empty string is
+returned. Possible return values are <TT>"select"</TT>,
+<TT>"poll"</TT>, <TT>"kqueue"</TT>, or <TT>"epoll"</TT>.  Future versions
+of the library may return other values.
+<P>
+<H5>Description</H5>
+This function returns the string identifying the event notification
+mechanism which is actually being used by the State Threads library.
+<P>
+<HR>
+<P>
+
+<A NAME="set_switch_in_cb">
+<H4>st_set_switch_in_cb()</H4>
+</A>
+<A NAME="set_switch_out_cb">
+<H4>st_set_switch_out_cb()</H4>
+</A>
+Set the optional callback function for thread switches.
+<P>
+<H5>Syntax</H5>
+
+<PRE>
+#include &lt;st.h&gt;
+
+st_switch_cb_t st_set_switch_in_cb(st_switch_cb_t cb);
+st_switch_cb_t st_set_switch_out_cb(st_switch_cb_t cb);
+</PRE>
+<P>
+<H5>Parameters</H5>
+<TT>st_set_switch_in_cb()</TT> and <TT>st_set_switch_out_cb()</TT> have the
+following parameter:<P>
+<TT>cb</TT><P>
+A function to be called when a thread is resumed and stopped respectively.<P>
+<H5>Returns</H5>
+The previous callback function pointer.
+<P>
+<H5>Description</H5>
+These functions set the callback for when a thread is resumed and stopped
+respectively.  After being called any thread switch will call the callback.
+Use a <TT>NULL</TT> pointer to disable the callback (this is the default).
+Use <A HREF=#thread_self>st_thread_self()</A> or <A HREF=#priv>thread
+specific data</A> to differentiate between threads.<P>
+These functions can be called at any time.<P>
+This feature is available only when <TT>ST_SWITCH_CB</TT> is defined
+in <TT>&lt;st.h&gt;</TT>.
 <P>
 <HR>
 <P>
@@ -481,9 +706,9 @@ to indicate the error:<P>
 <TR><TD><TT>EINVAL</TT></TD><TD>Target thread is unjoinable.</TD></TR>
 <TR><TD><TT>EINVAL</TT></TD><TD>Other thread already waits on the same
 joinable thread.</TD></TR>
-<TR><TD><TT>EDEADLK </TT></TD><TD>Target thread is the same as the
+<TR><TD><TT>EDEADLK</TT></TD><TD>Target thread is the same as the
 calling thread.</TD></TR>
-<TR><TD><TT>EINTR </TT></TD><TD>Current thread was interrupted by
+<TR><TD><TT>EINTR</TT></TD><TD>Current thread was interrupted by
 <A HREF=#thread_interrupt>st_thread_interrupt()</A>.</TD></TR>
 </TABLE>
 <P>
@@ -591,7 +816,7 @@ Upon successful completion, a value of <TT>0</TT> is returned.
 Otherwise, a value of <TT>-1</TT> is returned and <TT>errno</TT> is set
 to indicate the error:<P>
 <TABLE BORDER=0>
-<TR><TD><TT>EINTR </TT></TD><TD>The current thread was interrupted by
+<TR><TD><TT>EINTR</TT></TD><TD>The current thread was interrupted by
 <A HREF=#thread_interrupt>st_thread_interrupt()</A>.</TD></TR>
 </TABLE>
 <P>
@@ -599,12 +824,20 @@ to indicate the error:<P>
 These functions suspend the calling thread from execution for a specified
 number of seconds (<TT>st_sleep()</TT>) or microseconds (<TT>st_usleep()</TT>).
 <P>
-If zero is passed as a parameter to these functions, the calling thread yields,
-thus potentially allowing another thread to run.
+
+If zero is passed as a parameter to <tt>st_sleep()</tt>, or
+<tt>ST_UTIME_NO_WAIT</tt> (<tt>0</tt>) is passed to
+<tt>st_usleep()</tt>, the calling thread yields, thus potentially
+allowing another thread to run.
+
 <P>
-If <TT>-1</TT> is passed as a parameter to these functions, the calling thread
-will be suspended permanently. It can be resumed again by interrupting it via
-<A HREF=#thread_interrupt>st_thread_interrupt()</A>.
+
+If <TT>-1</TT> is passed as a parameter to <tt>st_sleep()</tt>, or
+<tt>ST_UTIME_NO_TIMEOUT</tt> (<tt>-1</tt>) is passed to
+<tt>st_usleep()</tt>, the calling thread will be suspended permanently.
+It can be resumed again by interrupting it via <A
+HREF=#thread_interrupt>st_thread_interrupt()</A>.
+
 <P>
 <HR>
 <P>
@@ -631,7 +864,7 @@ aligned.
 <P>
 <H5>Returns</H5>
 The previous state of stack randomization (a value of <TT>0</TT> if it
-was off and a nonzero value otherwise).
+was off and a non-zero value otherwise).
 <P>
 <H5>Description</H5>
 Randomizing state threads' stack bases may improve cache performance on
@@ -699,7 +932,7 @@ Upon successful completion, a value of <TT>0</TT> is returned.
 Otherwise, a value of <TT>-1</TT> is returned and <TT>errno</TT> is set
 to indicate the error:<P>
 <TABLE BORDER=0>
-<TR><TD><TT>EAGAIN </TT></TD><TD>The limit on the total number of keys per
+<TR><TD><TT>EAGAIN</TT></TD><TD>The limit on the total number of keys per
 process has been exceeded (see <A HREF=#key_getlimit>st_key_getlimit()</A>).
 </TD></TR>
 </TABLE>
@@ -776,7 +1009,7 @@ Upon successful completion, a value of <TT>0</TT> is returned.
 Otherwise, a value of <TT>-1</TT> is returned and <TT>errno</TT> is set
 to indicate the error:<P>
 <TABLE BORDER=0>
-<TR><TD><TT>EINVAL </TT></TD><TD>The specified <TT>key</TT> is invalid.</TD>
+<TR><TD><TT>EINVAL</TT></TD><TD>The specified <TT>key</TT> is invalid.</TD>
 </TR>
 </TABLE>
 <P>
@@ -895,7 +1128,7 @@ Upon successful completion, a value of <TT>0</TT> is returned.
 Otherwise, a value of <TT>-1</TT> is returned and <TT>errno</TT> is set
 to indicate the error:<P>
 <TABLE BORDER=0>
-<TR><TD><TT>EBUSY </TT></TD><TD>The condition variable is currently being
+<TR><TD><TT>EBUSY</TT></TD><TD>The condition variable is currently being
 used by one or more threads.</TD>
 </TR>
 </TABLE>
@@ -929,7 +1162,7 @@ Upon successful completion, a value of <TT>0</TT> is returned.
 Otherwise, a value of <TT>-1</TT> is returned and <TT>errno</TT> is set
 to indicate the error:<P>
 <TABLE BORDER=0>
-<TR><TD><TT>EINTR </TT></TD><TD>The current thread was interrupted by
+<TR><TD><TT>EINTR</TT></TD><TD>The current thread was interrupted by
 <A HREF=#thread_interrupt>st_thread_interrupt()</A>.</TD></TR>
 </TABLE>
 <P>
@@ -968,15 +1201,17 @@ If the number of microseconds specified by this parameter passes before the
 waiting thread is signalled, an error is returned. This parameter is a
 variable of type <A HREF=#utime_t><B>st_utime_t</B></A>. Note that this
 time value is a <I>time delta</I>; it is not an <I>absolute time</I>.
+Also note that timeouts are measured <A HREF="notes.html#timeouts">since
+the last context switch</A>.
 <P>
 <H5>Returns</H5>
 Upon successful completion, a value of <TT>0</TT> is returned.
 Otherwise, a value of <TT>-1</TT> is returned and <TT>errno</TT> is set
 to indicate the error:<P>
 <TABLE BORDER=0>
-<TR><TD><TT>EINTR </TT></TD><TD>The current thread was interrupted by
+<TR><TD><TT>EINTR</TT></TD><TD>The current thread was interrupted by
 <A HREF=#thread_interrupt>st_thread_interrupt()</A>.</TD></TR>
-<TR><TD><TT>ETIME </TT></TD><TD>The timeout occurred before the thread was
+<TR><TD><TT>ETIME</TT></TD><TD>The timeout occurred before the thread was
 awakened by <A HREF=#cond_signal>st_cond_signal()</A> or
 <A HREF=#cond_broadcast>st_cond_broadcast()</A>.</TD></TR>
 </TABLE>
@@ -1095,7 +1330,7 @@ Upon successful completion, a value of <TT>0</TT> is returned.
 Otherwise, a value of <TT>-1</TT> is returned and <TT>errno</TT> is set
 to indicate the error:<P>
 <TABLE BORDER=0>
-<TR><TD><TT>EBUSY </TT></TD><TD>The mutex is currently being used by
+<TR><TD><TT>EBUSY</TT></TD><TD>The mutex is currently being used by
 other threads.</TD>
 </TR>
 </TABLE>
@@ -1129,9 +1364,9 @@ Upon successful completion, a value of <TT>0</TT> is returned.
 Otherwise, a value of <TT>-1</TT> is returned and <TT>errno</TT> is set
 to indicate the error:<P>
 <TABLE BORDER=0>
-<TR><TD><TT>EDEADLK </TT></TD><TD>The current thread already owns the mutex.
+<TR><TD><TT>EDEADLK</TT></TD><TD>The current thread already owns the mutex.
 </TD></TR>
-<TR><TD><TT>EINTR </TT></TD><TD>The current thread was interrupted by
+<TR><TD><TT>EINTR</TT></TD><TD>The current thread was interrupted by
 <A HREF=#thread_interrupt>st_thread_interrupt()</A>.</TD></TR>
 </TABLE>
 <P>
@@ -1165,7 +1400,7 @@ Upon successful completion, a value of <TT>0</TT> is returned.
 Otherwise, a value of <TT>-1</TT> is returned and <TT>errno</TT> is set
 to indicate the error:<P>
 <TABLE BORDER=0>
-<TR><TD><TT>EBUSY </TT></TD><TD>The mutex is currently held by another
+<TR><TD><TT>EBUSY</TT></TD><TD>The mutex is currently held by another
 thread.</TD></TR>
 </TABLE>
 <P>
@@ -1199,7 +1434,7 @@ Upon successful completion, a value of <TT>0</TT> is returned.
 Otherwise, a value of <TT>-1</TT> is returned and <TT>errno</TT> is set
 to indicate the error:<P>
 <TABLE BORDER=0>
-<TR><TD><TT>EPERM </TT></TD><TD>The current thread does not own the mutex.
+<TR><TD><TT>EPERM</TT></TD><TD>The current thread does not own the mutex.
 </TD></TR>
 </TABLE>
 <P>
@@ -1218,7 +1453,7 @@ a mutex should unlock it.
 <P>
 <DL>
 <DD><A HREF=#utime>st_utime()</A></DD>
-<DD><A HREF=#utime_func>st_set_utime_function()</A></DD>
+<DD><A HREF=#set_utime_function>st_set_utime_function()</A></DD>
 <DD><A HREF=#timecache_set>st_timecache_set()</A></DD>
 <DD><A HREF=#time>st_time()</A></DD>
 </DL>
@@ -1246,13 +1481,15 @@ Current high-resolution time value of type
 <A HREF=#utime_t><B>st_utime_t</B></A>.
 <P>
 <H5>Description</H5>
-This function returns the current high-resolution time. Time is expressed as
-microseconds since some arbitrary time in the past. It is not correlated in
-any way to the time of day (see <A HREF=#utime_t><B>st_utime_t</B></A>).
+This function returns the current high-resolution time. Time is
+expressed as microseconds since some arbitrary time in the past. It is
+not correlated in any way to the time of day.  See also <A
+HREF=#utime_t><B>st_utime_t</B></A> and <A
+HREF="#time"><B>st_time()</B></A>.
 <P>
 <HR>
 <P>
-<A NAME="utime_func">
+<A NAME="set_utime_function">
 <H4>st_set_utime_function()</H4>
 </A>
 Set high-resolution time function.
@@ -1306,6 +1543,7 @@ int st_timecache_set(int on);
 <TT>on</TT><P>
 If this parameter has a non-zero value, the time caching is turned on
 (enabled). Otherwise, the time caching is turned off (disabled).
+By default time caching is disabled.
 <P>
 <H5>Returns</H5>
 The previous state of time caching (a value of <TT>0</TT> if it was off and
@@ -1316,7 +1554,10 @@ The State Threads library has the ability to "cache" the time value that is
 reported by the <TT>time(2)</TT> system call. If the time caching is enabled
 by calling this function with a non-zero argument, then the result value
 of <TT>time(2)</TT> will be stored and updated at most once per second. The
-cached time can be retrieved by <A HREF=#time>st_time()</A>.<P>
+cached time can be retrieved by <A HREF=#time>st_time()</A>.
+By default time caching is disabled.
+You may enable or disable time caching at any time but generally
+you enable it once (if desired) during program initialization.<P>
 <B>Note:</B> There are some pathological cases (e.g., very heavy loads during
 application benchmarking) when a single thread runs for a long time without
 giving up control and the cached time value is not updated properly. If you
@@ -1365,9 +1606,14 @@ functions with two exceptions:
 <A HREF=#utime_t><B>st_utime_t</B></A> which represents an <I>inactivity
 timeout</I>: if no I/O is possible during this amount of time, I/O functions
 return an error code and set <TT>errno</TT> to <TT>ETIME</TT>.
-The boundary values <TT>0</TT> and <TT>-1</TT> for this argument indicate
-that the thread should wait no time (function returns immediately) or wait
-forever (never time out), respectively.
+
+The boundary values <tt>ST_UTIME_NO_WAIT</tt> (<TT>0</TT>) and
+<tt>ST_UTIME_NO_TIMEOUT</tt> (<TT>-1</TT>) for this argument indicate
+that the thread should wait no time (function returns immediately) or
+wait forever (never time out), respectively.
+
+Note that timeouts are measured <A HREF="notes.html#timeouts">since the
+last context switch</A>.
 </LI>
 </UL>
 <P>
@@ -1387,11 +1633,16 @@ forever (never time out), respectively.
 <DD><A HREF=#read>st_read()</A></DD>
 <DD><A HREF=#read_fully>st_read_fully()</A></DD>
 <DD><A HREF=#read_resid>st_read_resid()</A></DD>
+<DD><A HREF=#readv>st_readv()</A></DD>
+<DD><A HREF=#readv_resid>st_read_resid()</A></DD>
 <DD><A HREF=#write>st_write()</A></DD>
 <DD><A HREF=#write_resid>st_write_resid()</A></DD>
 <DD><A HREF=#writev>st_writev()</A></DD>
+<DD><A HREF=#writev_resid>st_writev_resid()</A></DD>
 <DD><A HREF=#recvfrom>st_recvfrom()</A></DD>
 <DD><A HREF=#sendto>st_sendto()</A></DD>
+<DD><A HREF=#recvmsg>st_recvmsg()</A></DD>
+<DD><A HREF=#sendmsg>st_sendmsg()</A></DD>
 <DD><A HREF=#open>st_open()</A></DD>
 <DD><A HREF=#poll>st_poll()</A></DD>
 </DL>
@@ -1709,6 +1960,15 @@ creating multiple server processes via <TT>fork(2)</TT>. If the application
 does not create multiple processes to accept network connections on
 the same listening socket, there is no need to call this function.
 <P>
+Deciding whether or not to serialize accepts is tricky.  On some
+platforms (IRIX, Linux) it's not needed at all and
+<TT>st_netfd_serialize_accept()</TT> is a no-op.  On other platforms
+it depends on the version of the OS (Solaris 2.6 doesn't need it but
+earlier versions do).  Serializing accepts does incur a slight
+performance penalty so you want to enable it only if necessary.  Read
+your system's manual pages for <tt>accept(2)</tt> and <tt>select(2)</tt>
+to see if accept serialization is necessary on your system.
+<P>
 <TT>st_netfd_serialize_accept()</TT> allocates resources that are
 freed upon freeing of the specified file descriptor object (see
 <A HREF=#netfd_free>st_netfd_free()</A> and
@@ -1740,9 +2000,9 @@ Specifies I/O events of interest. This parameter can be constructed by
 OR-ing any combination of the following event flags which are defined
 in the <TT>poll.h</TT> header file:<P>
 <TABLE BORDER=0>
-<TR><TD><TT>POLLIN </TT></TD><TD><TT>fd</TT> is readable.</TD></TR>
-<TR><TD><TT>POLLOUT </TT></TD><TD><TT>fd</TT> is is writable.</TD></TR>
-<TR><TD><TT>POLLPRI </TT></TD><TD><TT>fd</TT> has an exception condition.</TD>
+<TR><TD><TT>POLLIN</TT></TD><TD><TT>fd</TT> is readable.</TD></TR>
+<TR><TD><TT>POLLOUT</TT></TD><TD><TT>fd</TT> is is writable.</TD></TR>
+<TR><TD><TT>POLLPRI</TT></TD><TD><TT>fd</TT> has an exception condition.</TD>
 </TR>
 </TABLE>
 <P>
@@ -1752,6 +2012,8 @@ to become ready. This parameter is a variable of type
 <A HREF=#utime_t><B>st_utime_t</B></A>. If this time expires without any
 I/O becoming ready, <TT>st_netfd_poll()</TT> returns an error and sets
 <TT>errno</TT> to <TT>ETIME</TT>.
+Note that timeouts are measured <A HREF="notes.html#timeouts">since the
+last context switch</A>.
 <P>
 <H5>Returns</H5>
 If the named file descriptor object is ready for I/O within the specified
@@ -1759,22 +2021,33 @@ amount of time, a value of <TT>0</TT> is returned. Otherwise, a value
 of <TT>-1</TT> is returned and <TT>errno</TT> is set to indicate the error:
 <P>
 <TABLE BORDER=0>
-<TR><TD><TT>EBADF </TT></TD><TD>The underlying OS file descriptor is invalid.
+<TR><TD><TT>EBADF</TT></TD><TD>The underlying OS file descriptor is invalid.
 </TD></TR>
-<TR><TD><TT>EINTR </TT></TD><TD>The current thread was interrupted by
+<TR><TD><TT>EINTR</TT></TD><TD>The current thread was interrupted by
 <A HREF=#thread_interrupt>st_thread_interrupt()</A>.</TD></TR>
-<TR><TD><TT>ETIME </TT></TD><TD>The timeout occurred without any I/O
+<TR><TD><TT>ETIME</TT></TD><TD>The timeout occurred without any I/O
 becoming ready.</TD></TR>
 </TABLE>
 <P>
 <H5>Description</H5>
-This function returns as soon as I/O is ready on the named file descriptor
-object or the specified amount of time expires. The <TT>how</TT> parameter
-should be set to the I/O events (readable, writable, exception, or some
-combination) that the caller is interested in. If the value of
-<TT>timeout</TT> is <TT>-1</TT>, this function blocks until a requested I/O
-event occurs or until the call is interrupted by
-<A HREF=#thread_interrupt>st_thread_interrupt()</A>.
+This function returns as soon as I/O is ready on the named file
+descriptor object or the specified amount of time expires. The
+<TT>how</TT> parameter should be set to the I/O events (readable,
+writable, exception, or some combination) that the caller is interested
+in. If the value of <TT>timeout</TT> is <tt>ST_UTIME_NO_TIMEOUT</tt>
+(<TT>-1</TT>), this function blocks until a requested I/O event occurs
+or until the call is interrupted by <A
+HREF=#thread_interrupt>st_thread_interrupt()</A>.<p>
+Despite having an interface like <tt>poll(2)</tt>, this function uses
+the same event notification mechanism as the rest of the library.  For
+instance if an alternative event nofication mechanism was set using <a
+href=#set_eventsys>st_set_eventsys()</a>, this function uses that
+mechanism to check for events.<p>
+<b>Note: </b> if <TT>kqueue(2)</TT> is used as an alternative event
+notification mechanism (see <A
+HREF=#set_eventsys>st_set_eventsys()</A>), the <TT>POLLPRI</TT>
+event flag is not supported and <TT>st_netfd_poll()</TT> will return an error
+if it's set (<TT>errno</TT> will be set to <TT>EINVAL</TT>).
 <P>
 <HR>
 <P>
@@ -1812,6 +2085,8 @@ address returned (see <TT>accept(3)</TT>).<P>
 <TT>timeout</TT><P>
 A value of type <A HREF=#utime_t><B>st_utime_t</B></A> specifying the time
 limit in microseconds for completion of the accept operation.
+Note that timeouts are measured <A HREF="notes.html#timeouts">since the
+last context switch</A>.
 <P>
 <H5>Returns</H5>
 Upon successful completion, a new file descriptor object identifier
@@ -1820,9 +2095,9 @@ representing the newly accepted connection is returned. Otherwise,
 Possible <TT>errno</TT> values are the same as set by the <TT>accept(3)</TT>
 call with two exceptions:<P>
 <TABLE BORDER=0>
-<TR><TD><TT>EINTR </TT></TD><TD>The current thread was interrupted by
+<TR><TD><TT>EINTR</TT></TD><TD>The current thread was interrupted by
 <A HREF=#thread_interrupt>st_thread_interrupt()</A>.</TD></TR>
-<TR><TD><TT>ETIME </TT></TD><TD>The timeout occurred and no pending
+<TR><TD><TT>ETIME</TT></TD><TD>The timeout occurred and no pending
 connection was accepted.</TD></TR>
 </TABLE>
 <P>
@@ -1866,6 +2141,8 @@ This parameter specifies the amount of space pointed to by <TT>addr</TT>.
 <TT>timeout</TT><P>
 A value of type <A HREF=#utime_t><B>st_utime_t</B></A> specifying the time
 limit in microseconds for completion of the connect operation.
+Note that timeouts are measured <A HREF="notes.html#timeouts">since the
+last context switch</A>.
 <P>
 <H5>Returns</H5>
 Upon successful completion, a value of <TT>0</TT> is returned.
@@ -1873,9 +2150,9 @@ Otherwise, a value of <TT>-1</TT> is returned and <TT>errno</TT> is set
 to indicate the error. Possible <TT>errno</TT> values are the same as set
 by the <TT>connect(3)</TT> call with two exceptions:<P>
 <TABLE BORDER=0>
-<TR><TD><TT>EINTR </TT></TD><TD>The current thread was interrupted by
+<TR><TD><TT>EINTR</TT></TD><TD>The current thread was interrupted by
 <A HREF=#thread_interrupt>st_thread_interrupt()</A>.</TD></TR>
-<TR><TD><TT>ETIME </TT></TD><TD>The timeout occurred and connection setup
+<TR><TD><TT>ETIME</TT></TD><TD>The timeout occurred and connection setup
 was not completed.</TD></TR>
 </TABLE> 
 <P>
@@ -1917,6 +2194,8 @@ The size of <TT>buf</TT> in bytes.<P>
 <TT>timeout</TT><P>
 A value of type <A HREF=#utime_t><B>st_utime_t</B></A> specifying the time
 limit in microseconds for completion of the read operation.
+Note that timeouts are measured <A HREF="notes.html#timeouts">since the
+last context switch</A>.
 <P>
 <H5>Returns</H5>
 On success a non-negative integer indicating the number of bytes actually
@@ -1926,9 +2205,9 @@ returned and <TT>errno</TT> is set to indicate the error.
 Possible <TT>errno</TT> values are the same as set by the <TT>read(2)</TT>
 call with two exceptions:<P>
 <TABLE BORDER=0>
-<TR><TD><TT>EINTR </TT></TD><TD>The current thread was interrupted by
+<TR><TD><TT>EINTR</TT></TD><TD>The current thread was interrupted by
 <A HREF=#thread_interrupt>st_thread_interrupt()</A>.</TD></TR>
-<TR><TD><TT>ETIME </TT></TD><TD>The timeout occurred and no data was read.
+<TR><TD><TT>ETIME</TT></TD><TD>The timeout occurred and no data was read.
 </TD></TR>
 </TABLE>
 <P>
@@ -1967,6 +2246,8 @@ size of <TT>buf</TT>.<P>
 <TT>timeout</TT><P>
 A value of type <A HREF=#utime_t><B>st_utime_t</B></A> specifying the
 inactivity timeout (in microseconds).
+Note that timeouts are measured <A HREF="notes.html#timeouts">since the
+last context switch</A>.
 <P>
 <H5>Returns</H5>
 On success a non-negative integer indicating the number of bytes actually
@@ -1976,9 +2257,9 @@ connection is closed or end of file is reached). Otherwise, a value of
 Possible <TT>errno</TT> values are the same as set by the <TT>read(2)</TT>
 call with two exceptions:<P>
 <TABLE BORDER=0>
-<TR><TD><TT>EINTR </TT></TD><TD>The current thread was interrupted by
+<TR><TD><TT>EINTR</TT></TD><TD>The current thread was interrupted by
 <A HREF=#thread_interrupt>st_thread_interrupt()</A>.</TD></TR>
-<TR><TD><TT>ETIME </TT></TD><TD>The timeout occurred.
+<TR><TD><TT>ETIME</TT></TD><TD>The timeout occurred.
 </TD></TR>
 </TABLE>
 <P>
@@ -2020,6 +2301,8 @@ On return, the amount of data remaining to be read.
 <TT>timeout</TT><P>
 A value of type <A HREF=#utime_t><B>st_utime_t</B></A> specifying the
 inactivity timeout (in microseconds).
+Note that timeouts are measured <A HREF="notes.html#timeouts">since the
+last context switch</A>.
 <P>
 <H5>Returns</H5>
 On success, zero is returned.  <TT>*resid</TT> may be zero, indicating
@@ -2031,9 +2314,9 @@ and <TT>errno</TT> is set to indicate the error.
 Possible <TT>errno</TT> values are the same as set by the <TT>read(2)</TT>
 call with two exceptions:<P>
 <TABLE BORDER=0>
-<TR><TD><TT>EINTR </TT></TD><TD>The current thread was interrupted by
+<TR><TD><TT>EINTR</TT></TD><TD>The current thread was interrupted by
 <A HREF=#thread_interrupt>st_thread_interrupt()</A>.</TD></TR>
-<TR><TD><TT>ETIME </TT></TD><TD>The timeout occurred.
+<TR><TD><TT>ETIME</TT></TD><TD>The timeout occurred.
 </TD></TR>
 </TABLE>
 <P>
@@ -2043,6 +2326,125 @@ is read in full, it encounters an end-of-stream indication, a timeout occurs,
 or an error occurs.  It differs from <TT>st_read_fully()</TT> only in that
 it allows the caller to know how many bytes were transferred before an error
 occurred.
+<P>
+<HR>
+<P>
+<A NAME="readv">
+<H4>st_readv()</H4>
+</A>
+Reads data from a specified file descriptor object into multiple buffers.
+<P>
+<H5>Syntax</H5>
+
+<PRE>
+#include &lt;st.h&gt;
+
+ssize_t st_readv(st_netfd_t fd, const struct iovec *iov, int iov_size,
+		 st_utime_t timeout);
+</PRE>
+<P>
+<H5>Parameters</H5>
+<TT>st_readv()</TT> has the following parameters:<P>
+<TT>fd</TT><P>
+A file descriptor object identifier (see
+<A HREF=#netfd_t><B>st_netfd_t</B></A>).<P>
+<TT>iov</TT><P>
+An array of <tt>iovec</tt> structures that identify the buffers for holding
+the data read in.
+On return the buffers contain the data.<P>
+<TT>iov_size</TT><P>
+The number of <tt>iovec</tt> structures in the <tt>iov</tt> array.<P>
+<TT>timeout</TT><P>
+A value of type <A HREF=#utime_t><B>st_utime_t</B></A> specifying the time
+limit in microseconds for completion of the read operation.
+Note that timeouts are measured <A HREF="notes.html#timeouts">since the
+last context switch</A>.
+<P>
+<H5>Returns</H5>
+On success a non-negative integer indicating the number of bytes actually
+read is returned (a value of <TT>0</TT> means the network connection is
+closed or end of file is reached). Otherwise, a value of <TT>-1</TT> is
+returned and <TT>errno</TT> is set to indicate the error.
+Possible <TT>errno</TT> values are the same as set by the <TT>readv(2)</TT>
+call with two exceptions:<P>
+<TABLE BORDER=0>
+<TR><TD><TT>EINTR</TT></TD><TD>The current thread was interrupted by
+<A HREF=#thread_interrupt>st_thread_interrupt()</A>.</TD></TR>
+<TR><TD><TT>ETIME</TT></TD><TD>The timeout occurred and no data was read.
+</TD></TR>
+</TABLE>
+<P>
+<H5>Description</H5>
+This function blocks the calling thread until it encounters an end-of-stream
+indication, some positive number of bytes (but no more than fit in the buffers)
+are read in, a timeout occurs, or an error occurs.
+<P>
+<HR>
+<P>
+<A NAME="readv_resid">
+<H4>st_readv_resid()</H4>
+</A>
+Reads the specified amount of data in full from a file descriptor object
+into multiple buffers.
+<P>
+<H5>Syntax</H5>
+
+<PRE>
+#include &lt;st.h&gt;
+
+int st_readv_resid(st_netfd_t fd, struct iovec **iov, int *iov_size,
+		   st_utime_t timeout);
+</PRE>
+<P>
+<H5>Parameters</H5>
+<TT>st_readv_resid()</TT> has the following parameters:<P>
+<TT>fd</TT><P>
+A file descriptor object identifier (see
+<A HREF=#netfd_t><B>st_netfd_t</B></A>).<P>
+<TT>iov</TT><P>
+A pointer to an array of <tt>iovec</tt> structures.
+On entry, the iovecs identify the buffers for holding the data read in.
+On return, the incomplete iovecs.
+This function modifies both the pointer and the array to which it points.<P>
+<TT>iov_size</TT><P>
+A pointer to a number of iovec structures.
+On entry, the number of iovec structures pointed to by <tt>*iov</tt>.
+On return, the number of incomplete or unused iovec structures.
+(A non-zero returned value means some but not all of the data was read.)<P>
+<TT>timeout</TT><P>
+A value of type <A HREF=#utime_t><B>st_utime_t</B></A> specifying the
+inactivity timeout (in microseconds).
+Note that timeouts are measured <A HREF="notes.html#timeouts">since the
+last context switch</A>.
+<P>
+<H5>Returns</H5>
+On success, zero is returned. <TT>*iov_size</TT> may be zero, indicating
+a complete read, or non-zero, indicating the network connection is
+closed or end of file is reached.  <tt>*iov</tt> points to the first
+iovec after the end of the original array on a complete read, or to the
+first incomplete iovec on an incomplete read.
+<P>
+Otherwise, a value of <TT>-1</TT> is returned, <TT>*iov_size</TT> is non-zero,
+and <TT>errno</TT> is set to indicate the error.  <tt>*iov</tt> points to the
+first unused iovec.
+Possible <TT>errno</TT> values are the same as set by the <TT>readv(2)</TT>
+call with two exceptions:<P>
+<TABLE BORDER=0>
+<TR><TD><TT>EINTR</TT></TD><TD>The current thread was interrupted by
+<A HREF=#thread_interrupt>st_thread_interrupt()</A>.</TD></TR>
+<TR><TD><TT>ETIME</TT></TD><TD>The timeout occurred.
+</TD></TR>
+</TABLE>
+<P>All of the iovecs before <tt>*iov</tt> are modified such that
+<tt>iov_base</tt> points to the end of the original buffer and
+<tt>iov_len</tt> is zero.
+<P>
+<H5>Description</H5>
+This function blocks the calling thread until the specified amount of data
+is read in full, it encounters an end-of-stream indication, a timeout occurs,
+or an error occurs.  Like <tt>st_read_resid()</tt> it blocks the thread until
+<i>all</i> of the requested data is read or an error occurs.  Use
+<tt>st_readv()</tt> to read <i>up to</i> the requested amount of data.
 <P>
 <HR>
 <P>
@@ -2072,6 +2474,8 @@ The amount of data in bytes to be written from the buffer.<P>
 <TT>timeout</TT><P>
 A value of type <A HREF=#utime_t><B>st_utime_t</B></A> specifying the
 inactivity timeout (in microseconds).
+Note that timeouts are measured <A HREF="notes.html#timeouts">since the
+last context switch</A>.
 <P>
 <H5>Returns</H5>
 On success a non-negative integer equal to <TT>nbyte</TT> is returned.
@@ -2079,9 +2483,9 @@ Otherwise, a value of <TT>-1</TT> is returned and <TT>errno</TT> is set
 to indicate the error. Possible <TT>errno</TT> values are the same as set
 by the <TT>write(2)</TT> call with two exceptions:<P>
 <TABLE BORDER=0>
-<TR><TD><TT>EINTR </TT></TD><TD>The current thread was interrupted by
+<TR><TD><TT>EINTR</TT></TD><TD>The current thread was interrupted by
 <A HREF=#thread_interrupt>st_thread_interrupt()</A>.</TD></TR>
-<TR><TD><TT>ETIME </TT></TD><TD>The timeout occurred.
+<TR><TD><TT>ETIME</TT></TD><TD>The timeout occurred.
 </TD></TR>
 </TABLE> 
 <P>
@@ -2123,6 +2527,8 @@ On return, the amount of data remaining to be written.
 <TT>timeout</TT><P>
 A value of type <A HREF=#utime_t><B>st_utime_t</B></A> specifying the
 inactivity timeout (in microseconds).
+Note that timeouts are measured <A HREF="notes.html#timeouts">since the
+last context switch</A>.
 <P>
 <H5>Returns</H5>
 On success, zero is returned and <TT>*resid</TT> is zero.
@@ -2131,9 +2537,9 @@ and <TT>errno</TT> is set
 to indicate the error. Possible <TT>errno</TT> values are the same as set
 by the <TT>write(2)</TT> call with two exceptions:<P>
 <TABLE BORDER=0>
-<TR><TD><TT>EINTR </TT></TD><TD>The current thread was interrupted by
+<TR><TD><TT>EINTR</TT></TD><TD>The current thread was interrupted by
 <A HREF=#thread_interrupt>st_thread_interrupt()</A>.</TD></TR>
-<TR><TD><TT>ETIME </TT></TD><TD>The timeout occurred.
+<TR><TD><TT>ETIME</TT></TD><TD>The timeout occurred.
 </TD></TR>
 </TABLE> 
 <P>
@@ -2172,6 +2578,8 @@ Number of <TT>iovec</TT> structures in the <TT>iov</TT> array.<P>
 <TT>timeout</TT><P>
 A value of type <A HREF=#utime_t><B>st_utime_t</B></A> specifying the
 inactivity timeout (in microseconds).
+Note that timeouts are measured <A HREF="notes.html#timeouts">since the
+last context switch</A>.
 <P>
 <H5>Returns</H5>
 On success a non-negative integer equal to the sum of all the buffer lengths
@@ -2179,9 +2587,9 @@ is returned. Otherwise, a value of <TT>-1</TT> is returned and <TT>errno</TT>
 is set to indicate the error. Possible <TT>errno</TT> values are the same as
 set by the <TT>writev(2)</TT> call with two exceptions:<P>
 <TABLE BORDER=0>
-<TR><TD><TT>EINTR </TT></TD><TD>The current thread was interrupted by
+<TR><TD><TT>EINTR</TT></TD><TD>The current thread was interrupted by
 <A HREF=#thread_interrupt>st_thread_interrupt()</A>.</TD></TR>
-<TR><TD><TT>ETIME </TT></TD><TD>The timeout occurred.
+<TR><TD><TT>ETIME</TT></TD><TD>The timeout occurred.
 </TD></TR>
 </TABLE>
 <P>
@@ -2191,6 +2599,67 @@ a timeout occurs, or the write operation fails. The return value is equal to
 either the sum of all the buffer lengths (on success) or <TT>-1</TT> (on
 failure). Note that if <TT>st_writev()</TT> returns <TT>-1</TT>, part of the
 data may have been written before an error occurred.
+<P>
+<HR>
+<P>
+<A NAME="writev_resid">
+<H4>st_writev_resid()</H4>
+</A>
+Writes multiple buffers of data to a specified file descriptor object.
+<P>
+<H5>Syntax</H5>
+
+<PRE>
+#include &lt;st.h&gt;
+
+int st_writev_resid(st_netfd_t fd, struct iovec **iov, int *iov_size,
+		    st_utime_t timeout);
+</PRE>
+<P>
+<H5>Parameters</H5>
+<TT>st_writev_resid()</TT> has the following parameters:<P>
+<TT>fd</TT><P>
+A file descriptor object identifier (see
+<A HREF=#netfd_t><B>st_netfd_t</B></A>).<P>
+<TT>iov</TT><P>
+A pointer to an array of <tt>iovec</tt> structures.
+On entry, the iovecs identify the buffers holding the data to write.
+On return, the incomplete iovecs.
+This function modifies both the pointer and the array to which it points.<P>
+<TT>iov_size</TT><P>
+A pointer to a number of iovec structures.
+On entry, the number of iovec structures pointed to by <tt>*iov</tt>.
+On return, the number of incomplete or unused iovec structures.
+(A non-zero returned value means some but not all of the data was written.)<P>
+<TT>timeout</TT><P>
+A value of type <A HREF=#utime_t><B>st_utime_t</B></A> specifying the
+inactivity timeout (in microseconds).
+Note that timeouts are measured <A HREF="notes.html#timeouts">since the
+last context switch</A>.
+<P>
+<H5>Returns</H5>
+On success, zero is returned, <TT>*iov_size</TT> is zero, and <tt>*iov</tt>
+points to the first iovec after the end of the original array.
+Otherwise, a value of <TT>-1</TT> is returned, <TT>*iov_size</TT> is non-zero,
+<tt>*iov</tt> points to the first incomplete iovec, and <TT>errno</TT> is set
+to indicate the error. Possible <TT>errno</TT> values are the same as set
+by the <TT>writev(2)</TT> call with two exceptions:<P>
+<TABLE BORDER=0>
+<TR><TD><TT>EINTR</TT></TD><TD>The current thread was interrupted by
+<A HREF=#thread_interrupt>st_thread_interrupt()</A>.</TD></TR>
+<TR><TD><TT>ETIME</TT></TD><TD>The timeout occurred.
+</TD></TR>
+</TABLE> 
+<P>
+All of the iovecs before <tt>*iov</tt> are modified such that
+<tt>iov_base</tt> points to the end of the original buffer and
+<tt>iov_len</tt> is zero.
+<P>
+<H5>Description</H5>
+This function blocks the calling thread until <I>all</I> the data is written,
+a timeout occurs, or the write operation fails. It differs from
+<TT>st_writev()</TT> only in that it allows the caller to know how many bytes
+were transferred before an error occurred.
 <P>
 <HR>
 <P>
@@ -2228,6 +2697,8 @@ size of the address stored there.<P>
 <TT>timeout</TT><P>
 A value of type <A HREF=#utime_t><B>st_utime_t</B></A> specifying the time
 limit in microseconds for completion of the receive operation.
+Note that timeouts are measured <A HREF="notes.html#timeouts">since the
+last context switch</A>.
 <P>
 <H5>Returns</H5>
 On success a non-negative integer indicating the length of the received
@@ -2236,9 +2707,9 @@ and <TT>errno</TT> is set to indicate the error. Possible <TT>errno</TT>
 values are the same as set by the <TT>recvfrom(3)</TT> call with two
 exceptions:<P>
 <TABLE BORDER=0>
-<TR><TD><TT>EINTR </TT></TD><TD>The current thread was interrupted by
+<TR><TD><TT>EINTR</TT></TD><TD>The current thread was interrupted by
 <A HREF=#thread_interrupt>st_thread_interrupt()</A>.</TD></TR>
-<TR><TD><TT>ETIME </TT></TD><TD>The timeout occurred and no data was received.
+<TR><TD><TT>ETIME</TT></TD><TD>The timeout occurred and no data was received.
 </TD></TR>
 </TABLE>
 <P>
@@ -2281,6 +2752,8 @@ This parameter specifies the size of the destination address.<P>
 <TT>timeout</TT><P>
 A value of type <A HREF=#utime_t><B>st_utime_t</B></A> specifying the time
 limit in microseconds for completion of the send operation.
+Note that timeouts are measured <A HREF="notes.html#timeouts">since the
+last context switch</A>.
 <P>
 <H5>Returns</H5>
 On success a non-negative integer indicating the number of bytes sent is
@@ -2288,9 +2761,9 @@ returned. Otherwise, a value of <TT>-1</TT> is returned and <TT>errno</TT> is
 set to indicate the error. Possible <TT>errno</TT> values are the same as
 set by the <TT>sendto(3)</TT> call with two exceptions:<P>
 <TABLE BORDER=0>
-<TR><TD><TT>EINTR </TT></TD><TD>The current thread was interrupted by
+<TR><TD><TT>EINTR</TT></TD><TD>The current thread was interrupted by
 <A HREF=#thread_interrupt>st_thread_interrupt()</A>.</TD></TR>
-<TR><TD><TT>ETIME </TT></TD><TD>The timeout occurred and no data was sent.
+<TR><TD><TT>ETIME</TT></TD><TD>The timeout occurred and no data was sent.
 </TD></TR>
 </TABLE>
 <P>
@@ -2299,6 +2772,108 @@ This function sends a specified number of bytes from a file descriptor
 object representing a UDP socket to the specified destination address.
 If no buffer space is available at the underlying OS socket to hold the
 message to be transmitted, then <TT>st_sendto()</TT> blocks the calling
+thread until the space becomes available, a timeout occurs, or an error
+occurs.
+<P>
+<HR>
+<P>
+<A NAME="recvmsg">
+<H4>st_recvmsg()</H4>
+</A>
+Receives a message from a file descriptor object.
+<P>
+<H5>Syntax</H5>
+
+<PRE>
+#include &lt;st.h&gt;
+
+int st_recvmsg(st_netfd_t fd, struct msghdr *msg, int flags,
+               st_utime_t timeout);
+</PRE>
+<P>
+<H5>Parameters</H5>
+<TT>st_recvmsg()</TT> has the following parameters:<P>
+<TT>fd</TT><P>
+A file descriptor object identifier (see
+<A HREF=#netfd_t><B>st_netfd_t</B></A>) representing a UDP socket.<P>
+<TT>msg</TT><P>
+A pointer to a <TT>msghdr</TT> structure to describe the data received.<P>
+<TT>flags</TT><P>
+Control flags for <TT>recvmsg(3)</TT>.<P>
+<TT>timeout</TT><P>
+A value of type <A HREF=#utime_t><B>st_utime_t</B></A> specifying the time
+limit in microseconds for completion of the receive operation.
+Note that timeouts are measured <A HREF="notes.html#timeouts">since the
+last context switch</A>.
+<P>
+<H5>Returns</H5>
+On success a non-negative integer indicating the number of bytes received
+is returned. Otherwise, a value of <TT>-1</TT> is returned
+and <TT>errno</TT> is set to indicate the error. Possible <TT>errno</TT>
+values are the same as set by the <TT>recvmsg(3)</TT> call with two
+exceptions:<P>
+<TABLE BORDER=0>
+<TR><TD><TT>EINTR</TT></TD><TD>The current thread was interrupted by
+<A HREF=#thread_interrupt>st_thread_interrupt()</A>.</TD></TR>
+<TR><TD><TT>ETIME</TT></TD><TD>The timeout occurred and no data was received.
+</TD></TR>
+</TABLE>
+<P>
+<H5>Description</H5>
+This function receives bytes from the specified file descriptor object
+representing a UDP socket.  The operation is controlled by the in/out
+<TT>msg</TT> parameter.<P>
+<TT>st_recvmsg()</TT> blocks the calling thread until one or more bytes are
+transferred, a timeout has occurred, or there is an error.
+<P>
+<HR>
+<P>
+<A NAME="sendmsg">
+<H4>st_sendmsg()</H4>
+</A>
+Sends a message to a file descriptor object.
+<P>
+<H5>Syntax</H5>
+
+<PRE>
+#include &lt;st.h&gt;
+
+int st_sendmsg(st_netfd_t fd, const struct msghdr *msg, int flags,
+               st_utime_t timeout);
+</PRE>
+<P>
+<H5>Parameters</H5>
+<TT>st_sendmsg()</TT> has the following parameters:<P>
+<TT>fd</TT><P>
+A file descriptor object identifier (see
+<A HREF=#netfd_t><B>st_netfd_t</B></A>) representing a UDP socket.<P>
+<TT>msg</TT><P>
+A pointer to a <TT>msghdr</TT> structure describing the message to be sent.<P>
+<TT>flags</TT><P>
+Control flags for <TT>sendmsg(3)</TT>.<P>
+<TT>timeout</TT><P>
+A value of type <A HREF=#utime_t><B>st_utime_t</B></A> specifying the time
+limit in microseconds for completion of the send operation.
+Note that timeouts are measured <A HREF="notes.html#timeouts">since the
+last context switch</A>.
+<P>
+<H5>Returns</H5>
+On success a non-negative integer indicating the number of bytes sent is
+returned. Otherwise, a value of <TT>-1</TT> is returned and <TT>errno</TT> is
+set to indicate the error. Possible <TT>errno</TT> values are the same as
+set by the <TT>sendmsg(3)</TT> call with two exceptions:<P>
+<TABLE BORDER=0>
+<TR><TD><TT>EINTR</TT></TD><TD>The current thread was interrupted by
+<A HREF=#thread_interrupt>st_thread_interrupt()</A>.</TD></TR>
+<TR><TD><TT>ETIME</TT></TD><TD>The timeout occurred and no data was sent.
+</TD></TR>
+</TABLE>
+<P>
+<H5>Description</H5>
+This function sends bytes to a file descriptor object representing a UDP
+socket.  The operation is controlled by the <TT>msg</TT> parameter.
+If no buffer space is available at the underlying OS socket to hold the
+message to be transmitted, then <TT>st_sendmsg()</TT> blocks the calling
 thread until the space becomes available, a timeout occurs, or an error
 occurs.
 <P>
@@ -2373,6 +2948,8 @@ A value of type <A HREF=#utime_t><B>st_utime_t</B></A> specifying the
 amount of time in <I>microseconds</I> the call will block waiting for I/O
 to become ready. If this time expires without any I/O becoming ready,
 <TT>st_poll()</TT> returns zero.
+Note that timeouts are measured <A HREF="notes.html#timeouts">since the
+last context switch</A>.
 <P>
 <H5>Returns</H5>
 Upon successful completion, a non-negative value is returned. A positive
@@ -2381,9 +2958,14 @@ that have events. A value of <TT>0</TT> indicates that the call timed out.
 Upon failure, a value of <TT>-1</TT> is returned and <TT>errno</TT> is set
 to indicate the error:<P>
 <TABLE BORDER=0>
-<TR><TD><TT>EINTR </TT></TD><TD>The current thread was interrupted by
+<TR><TD><TT>EINTR</TT></TD><TD>The current thread was interrupted by
 <A HREF=#thread_interrupt>st_thread_interrupt()</A>.</TD></TR>
 </TABLE>
+<P>
+If an alternative event notification mechanism has been set by
+<A HREF=#set_eventsys>st_set_eventsys()</A>, other values of
+<TT>errno</TT> could be set upon failure as well.  The values
+depend on the specific mechanism in use.
 <P>
 <H5>Description</H5>
 This function returns as soon as I/O is ready on one or more of the specified
@@ -2404,20 +2986,32 @@ The <TT>events</TT> and <TT>revents</TT> fields are constructed by OR-ing
 any combination of the following event flags (defined in <TT>poll.h</TT>):
 <P>
 <TABLE BORDER=0>
-<TR><TD><TT>POLLIN </TT></TD><TD><TT>fd</TT> is readable.</TD></TR>
-<TR><TD><TT>POLLOUT </TT></TD><TD><TT>fd</TT> is is writable.</TD></TR>
-<TR><TD><TT>POLLPRI </TT></TD><TD><TT>fd</TT> has an exception condition.</TD>
+<TR><TD><TT>POLLIN</TT></TD><TD><TT>fd</TT> is readable.</TD></TR>
+<TR><TD><TT>POLLOUT</TT></TD><TD><TT>fd</TT> is is writable.</TD></TR>
+<TR><TD><TT>POLLPRI</TT></TD><TD><TT>fd</TT> has an exception condition.</TD>
 </TR>
-<TR><TD><TT>POLLNVAL </TT></TD><TD><TT>fd</TT> is bad.</TD></TR>
+<TR><TD><TT>POLLNVAL</TT></TD><TD><TT>fd</TT> is bad.</TD></TR>
 </TABLE>
 <P>
 The <TT>POLLNVAL</TT> flag is only valid in the <TT>revents</TT> field;
 it is not used in the <TT>events</TT> field.<P>
+Despite having an interface like <tt>poll(2)</tt>, this function uses
+the same event notification mechanism as the rest of the library.  For
+instance if an alternative event nofication mechanism was set using <a
+href=#set_eventsys>st_set_eventsys()</a>, this function uses that
+mechanism to check for events.<p>
 Note that unlike the <TT>poll(2)</TT> call, this function has the
 <TT>timeout</TT> parameter expressed in microseconds. If the value of
-<TT>timeout</TT> is <TT>-1</TT>, this function blocks until a requested I/O
+<TT>timeout</TT> is <tt>ST_UTIME_NO_TIMEOUT</tt>
+(<TT>-1</TT>), this function blocks until a requested I/O
 event occurs or until the call is interrupted by
 <A HREF=#thread_interrupt>st_thread_interrupt()</A>.
+<P>
+<b>Note: </b> if <TT>kqueue(2)</TT> is used as an alternative event
+notification mechanism (see <A
+HREF=#set_eventsys>st_set_eventsys()</A>), the <TT>POLLPRI</TT>
+event flag is not supported and <TT>st_poll()</TT> will return an error
+if it's set (<TT>errno</TT> will be set to <TT>EINVAL</TT>).
 <P>
 <HR>
 <P>
@@ -2430,7 +3024,23 @@ Generally, the following steps should be followed when writing an application
 using the State Threads library:
 <P>
 <OL>
+<LI>Configure the library by calling these pre-init functions, if desired.
+  <ul>
+  <li><A HREF="#set_utime_function">st_set_utime_function()</A></li>
+  <li><A HREF="#set_eventsys">st_set_eventsys()</A></li>
+  </ul>
+  </LI>
+<P>
 <LI>Initialize the library by calling <A HREF=#st_init>st_init()</A>.</LI>
+<P>
+<LI>Configure the library by calling these post-init functions, if desired.
+  <ul>
+  <li><A HREF="#timecache_set">st_timecache_set()</A></li>
+  <li><A HREF="#randomize_stacks">st_randomize_stacks()</A></li>
+  <li><A HREF="#set_switch_in_cb">st_set_switch_in_cb()</A></li>
+  <li><A HREF="#set_switch_out_cb">st_set_switch_out_cb()</A></li>
+  </ul>
+  </LI>
 <P>
 <LI>Create resources that will be shared among different processes:
     create and bind listening sockets (see <TT>socket(3)</TT>,
@@ -2460,6 +3070,11 @@ indefinitely. For example, standard I/O functions (<TT>fgets(3)</TT>,
 <TT>read(2)</TT> and <TT>write(2)</TT> directly and therefore should not be
 used on sockets or pipes.
 <P>
+Also note that for short <A
+HREF="notes.html#timeouts">timeouts</A> to work the program
+should do context switches (for example by calling
+<TT>st_usleep()</TT>) on a regular basis.
+<P>
 <HR>
 <P>
 
@@ -2484,11 +3099,16 @@ Only the following functions can block the calling thread:
 <DD><A HREF=#read>st_read()</A></DD>
 <DD><A HREF=#read_fully>st_read_fully()</A></DD>
 <DD><A HREF=#read_resid>st_read_resid()</A></DD>
+<DD><A HREF=#readv>st_readv()</A></DD>
+<DD><A HREF=#readv_resid>st_readv_resid()</A></DD>
 <DD><A HREF=#write>st_write()</A></DD>
 <DD><A HREF=#write_resid>st_write_resid()</A></DD>
 <DD><A HREF=#writev>st_writev()</A></DD>
+<DD><A HREF=#writev_resid>st_writev_resid()</A></DD>
 <DD><A HREF=#recvfrom>st_recvfrom()</A></DD>
 <DD><A HREF=#sendto>st_sendto()</A></DD>
+<DD><A HREF=#recvmsg>st_recvmsg()</A></DD>
+<DD><A HREF=#sendmsg>st_sendmsg()</A></DD>
 <DD><A HREF=#poll>st_poll()</A></DD>
 </DL>
 <P>

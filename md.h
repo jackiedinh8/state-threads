@@ -118,12 +118,17 @@
 #define MD_USE_BSD_ANON_MMAP
 #define MD_ACCEPT_NB_INHERITED
 #define MD_ALWAYS_UNSERIALIZED_ACCEPT
+#define MD_HAVE_SOCKLEN_T
 
 #define MD_SETJMP(env) _setjmp(env)
 #define MD_LONGJMP(env, val) _longjmp(env, val)
 
 #if defined(__ppc__)
 #define MD_JB_SP  0
+#elif defined(__i386__)
+#define MD_JB_SP  9
+#elif defined(__x86_64__)
+#define MD_JB_SP  4
 #else
 #error Unknown CPU architecture
 #endif
@@ -132,7 +137,7 @@
   ST_BEGIN_MACRO                               \
   if (MD_SETJMP((_thread)->context))           \
     _main();                                   \
-  (_thread)->context[MD_JB_SP] = (long) (_sp); \
+  *((long *)&((_thread)->context[MD_JB_SP])) = (long) (_sp); \
   ST_END_MACRO
 
 #define MD_GET_UTIME()            \
@@ -154,6 +159,8 @@
 #define MD_JB_SP   2
 #elif defined(__alpha__)
 #define MD_JB_SP  34
+#elif defined(__amd64__)
+#define MD_JB_SP   2
 #else
 #error Unknown CPU architecture
 #endif
@@ -264,6 +271,10 @@
 #define MD_USE_BSD_ANON_MMAP
 #define MD_ACCEPT_NB_NOT_INHERITED
 #define MD_ALWAYS_UNSERIALIZED_ACCEPT
+/*
+ * Modern GNU/Linux is Posix.1g compliant.
+ */
+#define MD_HAVE_SOCKLEN_T
 
 /*
  * All architectures and flavors of linux have the gettimeofday
@@ -285,11 +296,10 @@
  * because their implementation implicitly assumes that only one
  * register stack exists.
  */
-#define MD_SETJMP(env) _ia64_cxt_save(env)
-#define MD_LONGJMP(env, val) _ia64_cxt_restore(env, val)
-
-extern int _ia64_cxt_save(jmp_buf env);
-extern void _ia64_cxt_restore(jmp_buf env, int val);
+#ifdef USE_LIBC_SETJMP
+#undef USE_LIBC_SETJMP
+#endif
+#define MD_USE_BUILTIN_SETJMP
 
 #define MD_STACK_PAD_SIZE 128
 /* Last register stack frame must be preserved */
@@ -307,38 +317,42 @@ extern void _ia64_cxt_restore(jmp_buf env, int val);
 #elif defined(__mips__)
 #define MD_STACK_GROWS_DOWN
 
-#define MD_SETJMP(env) setjmp(env)
-#define MD_LONGJMP(env, val) longjmp(env, val)
-
 #define MD_INIT_CONTEXT(_thread, _sp, _main)               \
   ST_BEGIN_MACRO                                           \
   MD_SETJMP((_thread)->context);                           \
   _thread->context[0].__jmpbuf[0].__pc = (__ptr_t) _main;  \
   _thread->context[0].__jmpbuf[0].__sp = _sp;              \
   ST_END_MACRO
-  
-#else /* Not IA-64 or mips everyone else just uses setjmp/longjmp */
+
+#else /* Not IA-64 or mips */
 
 /*
  * On linux, there are a few styles of jmpbuf format.  These vary based
  * on architecture/glibc combination.
- */
- 
-/*
- * However, all of these architectures will be using setjmp/longjmp.
- */
-#define MD_SETJMP(env) setjmp(env)
-#define MD_LONGJMP(env, val) longjmp(env, val)
- 
-/*
+ *
  * Most of the glibc based toggles were lifted from:
  * mozilla/nsprpub/pr/include/md/_linux.h
+ */
+
+/*
+ * Starting with glibc 2.4, JB_SP definitions are not public anymore.
+ * They, however, can still be found in glibc source tree in
+ * architecture-specific "jmpbuf-offsets.h" files.
+ * Most importantly, the content of jmp_buf is mangled by setjmp to make
+ * it completely opaque (the mangling can be disabled by setting the
+ * LD_POINTER_GUARD environment variable before application execution).
+ * Therefore we will use built-in _st_md_cxt_save/_st_md_cxt_restore
+ * functions as a setjmp/longjmp replacement wherever they are available
+ * unless USE_LIBC_SETJMP is defined.
  */
 
 #if defined(__powerpc__)
 #define MD_STACK_GROWS_DOWN
 
 #if (__GLIBC__ > 2) || (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 1)
+#ifndef JB_GPR1
+#define JB_GPR1 0
+#endif
 #define MD_GET_SP(_t) (_t)->context[0].__jmpbuf[JB_GPR1]   
 #else
 /* not an error but certainly cause for caution */
@@ -350,6 +364,9 @@ extern void _ia64_cxt_restore(jmp_buf env, int val);
 #define MD_STACK_GROWS_DOWN
 
 #if defined(__GLIBC__) && __GLIBC__ >= 2
+#ifndef JB_SP
+#define JB_SP 8
+#endif
 #define MD_GET_SP(_t) (_t)->context[0].__jmpbuf[JB_SP]
 #else
 /* not an error but certainly cause for caution */
@@ -367,6 +384,9 @@ extern void _ia64_cxt_restore(jmp_buf env, int val);
 #define MD_STACK_GROWS_DOWN
 
 #if defined(__GLIBC__) && __GLIBC__ >= 2
+#ifndef JB_SP
+#define JB_SP 0
+#endif
 #define MD_GET_SP(_t) (_t)->context[0].__jmpbuf[JB_SP]
 #else
 /* not an error but certainly cause for caution */
@@ -376,8 +396,12 @@ extern void _ia64_cxt_restore(jmp_buf env, int val);
 
 #elif defined(__i386__)
 #define MD_STACK_GROWS_DOWN
+#define MD_USE_BUILTIN_SETJMP
 
 #if defined(__GLIBC__) && __GLIBC__ >= 2
+#ifndef JB_SP
+#define JB_SP 4
+#endif
 #define MD_GET_SP(_t) (_t)->context[0].__jmpbuf[JB_SP]
 #else
 /* not an error but certainly cause for caution */
@@ -385,8 +409,13 @@ extern void _ia64_cxt_restore(jmp_buf env, int val);
 #define MD_GET_SP(_t) (_t)->context[0].__jmpbuf[0].__sp
 #endif
 
-#elif defined(__amd64__)
+#elif defined(__amd64__) || defined(__x86_64__)
 #define MD_STACK_GROWS_DOWN
+#define MD_USE_BUILTIN_SETJMP
+
+#ifndef JB_RSP
+#define JB_RSP 6
+#endif
 #define MD_GET_SP(_t) (_t)->context[0].__jmpbuf[JB_RSP]
 
 #elif defined(__arm__)
@@ -426,6 +455,17 @@ extern void _ia64_cxt_restore(jmp_buf env, int val);
   ST_END_MACRO
 
 #endif /* Cases with different MD_INIT_CONTEXT */
+
+#if defined(MD_USE_BUILTIN_SETJMP) && !defined(USE_LIBC_SETJMP)
+#define MD_SETJMP(env) _st_md_cxt_save(env)
+#define MD_LONGJMP(env, val) _st_md_cxt_restore(env, val)
+
+extern int _st_md_cxt_save(jmp_buf env);
+extern void _st_md_cxt_restore(jmp_buf env, int val);
+#else
+#define MD_SETJMP(env) setjmp(env)
+#define MD_LONGJMP(env, val) longjmp(env, val)
+#endif
 
 #elif defined (NETBSD)
 
@@ -478,6 +518,8 @@ extern void _ia64_cxt_restore(jmp_buf env, int val);
 #define MD_JB_SP  34
 #elif defined(__sparc__)
 #define MD_JB_SP   0
+#elif defined(__amd64__)
+#define MD_JB_SP   6
 #else
 #error Unknown CPU architecture
 #endif
@@ -547,6 +589,13 @@ extern int getpagesize(void);
   (_thread)->context[4] = (long) (_sp);      \
   (_thread)->context[5] = (long) _main;      \
   ST_END_MACRO
+#elif defined(__amd64__)
+#define MD_INIT_CONTEXT(_thread, _sp, _main)   \
+  ST_BEGIN_MACRO                               \
+  if (MD_SETJMP((_thread)->context))           \
+    _main();                                   \
+  (_thread)->context[6] = (long) (_sp); \
+  ST_END_MACRO
 #else
 #error Unknown CPU architecture
 #endif
@@ -557,6 +606,10 @@ extern int getpagesize(void);
 #else
 #error Unknown OS
 #endif /* OS */
+
+#if !defined(MD_HAVE_POLL) && !defined(MD_DONT_HAVE_POLL)
+#define MD_HAVE_POLL
+#endif
 
 #ifndef MD_STACK_PAD_SIZE
 #define MD_STACK_PAD_SIZE 128

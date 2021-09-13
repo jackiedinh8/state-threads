@@ -94,7 +94,7 @@ _st_stack_t *_st_stack_new(int stack_size)
 #endif
 
   if (extra) {
-    long offset = (random() % extra) & ~0x7;
+    long offset = (random() % extra) & ~0xf;
 
     ts->stk_bottom += offset;
     ts->stk_top += offset;

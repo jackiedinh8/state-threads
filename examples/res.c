@@ -59,6 +59,10 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#if defined (DARWIN)
+#define BIND_8_COMPAT
+#endif
+
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
@@ -78,7 +82,7 @@
 #endif
 
 /* New in Solaris 7 */
-#ifdef ns_get16
+#if !defined(_getshort) && defined(ns_get16)
 #define _getshort(cp) ns_get16(cp)
 #endif
 

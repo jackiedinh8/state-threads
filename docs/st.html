@@ -17,6 +17,7 @@ state machine architecture.</P>
 <P>
 <A NAME="IA">
 <H4>1.1 Internet Applications</H4>
+</A>
 <P>
 An <I>Internet Application</I> (IA) is either a server or client network
 application that accepts connections from clients and may or may not 
@@ -37,7 +38,9 @@ cycles rather than network bandwidth or disk I/O (that is, CPU
 is a bottleneck resource).
 <P>
 
+<A NAME="PS">
 <H4>1.2 Performance and Scalability</H4>
+</A>
 <P>
 The <I>performance</I> of an IA is usually evaluated as its
 throughput measured in transactions per second or bytes per second (one
@@ -99,7 +102,9 @@ IAs, they should also be considered for some client applications (such as
 benchmark load generators).
 <P>
 
+<A NAME="CONC">
 <H4>1.3 Concurrency</H4>
+</A>
 <P>
 Concurrency reflects the parallelism in a system.  The two unrelated types 
 are <I>virtual</I> concurrency and <I>real</I> concurrency.
@@ -132,7 +137,9 @@ These include the <I>Multi-Process</I>,
 <I>Multi-Threaded</I>, and <I>Event-Driven State Machine</I> 
 architectures.
 <P>
+<A NAME="MP">
 <H4>2.1 Multi-Process Architecture</H4>
+</A>
 <P>
 In the Multi-Process (MP) architecture, an individual process is 
 dedicated to each simultaneous connection.
@@ -160,7 +167,9 @@ synchronization overhead.
 The Apache Web Server 1.x (<A HREF=#refs1>[Reference 1]</A>) uses the MP 
 architecture on UNIX systems.
 <P>
+<A NAME="MT">
 <H4>2.2 Multi-Threaded Architecture</H4>
+</A>
 <P>
 In the Multi-Threaded (MT) architecture, multiple independent threads 
 of control are employed within a single shared address space.  Like a 
@@ -228,7 +237,9 @@ corruption, deadlocks, and race conditions, also make MT architecture (in any
 form) non-simplistic to use.
 <P>
 
+<A NAME="EDSM">
 <H4>2.3 Event-Driven State Machine Architecture</H4>
+</A>
 <P>
 In the Event-Driven State Machine (EDSM) architecture, a single process
 is employed to concurrently process multiple connections. The basics of this
@@ -271,7 +282,9 @@ the ground up.  In effect, the EDSM architecture simulates threads and their
 stacks the hard way.
 <P>
 
+<A NAME="ST">
 <H3>3. State Threads Library</H3>
+</A>
 <P>
 The State Threads library combines the advantages of all of the above
 architectures.  The interface preserves the programming simplicity of thread

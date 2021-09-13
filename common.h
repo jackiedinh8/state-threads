@@ -58,6 +58,12 @@
 #define ST_BEGIN_MACRO  {
 #define ST_END_MACRO    }
 
+#ifdef DEBUG
+#define ST_HIDDEN   /*nothing*/
+#else
+#define	ST_HIDDEN   static
+#endif
+
 #include "public.h"
 #include "md.h"
 
@@ -197,6 +203,19 @@ typedef struct _st_pollq {
 } _st_pollq_t;
 
 
+typedef struct _st_eventsys_ops {
+  const char *name;                          /* Name of this event system */
+  int  val;                                  /* Type of this event system */
+  int  (*init)(void);                        /* Initialization */
+  void (*dispatch)(void);                    /* Dispatch function */
+  int  (*pollset_add)(struct pollfd *, int); /* Add descriptor set */
+  void (*pollset_del)(struct pollfd *, int); /* Delete descriptor set */
+  int  (*fd_new)(int);                       /* New descriptor allocated */
+  int  (*fd_close)(int);                     /* Descriptor closed */
+  int  (*fd_getlimit)(void);                 /* Descriptor hard limit */
+} _st_eventsys_t;
+
+
 typedef struct _st_vp {
   _st_thread_t *idle_thread;  /* Idle thread for this vp */
   st_utime_t last_clock;      /* The last time we went into vp_check_clock() */
@@ -212,15 +231,10 @@ typedef struct _st_vp {
   _st_thread_t *sleep_q;      /* sleep queue for this vp */
   int sleepq_size;	      /* number of threads on sleep queue */
 
-#ifndef USE_POLL
-  int maxfd;
-  fd_set fd_read_set, fd_write_set, fd_exception_set;
-  int fd_ref_cnts[FD_SETSIZE][3];
-#else
-  int fdcnt;
-  struct pollfd *ioq_pollfds;
-  int ioq_pollfds_size;
-#endif  /* !USE_POLL */
+#ifdef ST_SWITCH_CB
+  st_switch_cb_t switch_out_cb;	/* called when a thread is switched out */
+  st_switch_cb_t switch_in_cb;	/* called when a thread is switched in */
+#endif
 } _st_vp_t;
 
 
@@ -235,11 +249,12 @@ typedef struct _st_netfd {
 
 
 /*****************************************
- * Current vp and thread
+ * Current vp, thread, and event system
  */
 
 extern _st_vp_t	    _st_this_vp;
 extern _st_thread_t *_st_this_thread;
+extern _st_eventsys_t *_st_eventsys;
 
 #define _ST_CURRENT_THREAD()            (_st_this_thread)
 #define _ST_SET_CURRENT_THREAD(_thread) (_st_this_thread = (_thread))
@@ -258,19 +273,7 @@ extern _st_thread_t *_st_this_thread;
 #define _ST_SLEEPQ                      (_st_this_vp.sleep_q)
 #define _ST_SLEEPQ_SIZE                 (_st_this_vp.sleepq_size)
 
-#ifndef USE_POLL
-#define _ST_MAX_OSFD                    (_st_this_vp.maxfd)
-#define _ST_FD_READ_SET                 (_st_this_vp.fd_read_set)
-#define _ST_FD_WRITE_SET                (_st_this_vp.fd_write_set)
-#define _ST_FD_EXCEPTION_SET            (_st_this_vp.fd_exception_set)
-#define _ST_FD_READ_CNT(fd)             (_st_this_vp.fd_ref_cnts[fd][0])
-#define _ST_FD_WRITE_CNT(fd)            (_st_this_vp.fd_ref_cnts[fd][1])
-#define _ST_FD_EXCEPTION_CNT(fd)        (_st_this_vp.fd_ref_cnts[fd][2])
-#else
-#define _ST_OSFD_CNT                    (_st_this_vp.fdcnt)
-#define _ST_POLLFDS                     (_st_this_vp.ioq_pollfds)
-#define _ST_POLLFDS_SIZE                (_st_this_vp.ioq_pollfds_size)
-#endif
+#define _ST_VP_IDLE()                   (*_st_eventsys->dispatch)()
 
 
 /*****************************************
@@ -345,14 +348,23 @@ extern _st_thread_t *_st_this_thread;
  * Constants
  */
 
-#define ST_UTIME_NO_TIMEOUT (-1ULL)
+#ifndef ST_UTIME_NO_TIMEOUT
+#define ST_UTIME_NO_TIMEOUT ((st_utime_t) -1LL)
+#endif
+
 #ifndef __ia64__
 #define ST_DEFAULT_STACK_SIZE (64*1024)
 #else
 #define ST_DEFAULT_STACK_SIZE (128*1024)  /* Includes register stack size */
 #endif
+
+#ifndef ST_KEYS_MAX
 #define ST_KEYS_MAX 16
+#endif
+
+#ifndef ST_MIN_POLLFDS_SIZE
 #define ST_MIN_POLLFDS_SIZE 64
+#endif
 
 
 /*****************************************
@@ -366,16 +378,36 @@ void _st_iterate_threads(void);
 #define ST_DEBUG_ITERATE_THREADS()
 #endif
 
+#ifdef ST_SWITCH_CB
+#define ST_SWITCH_OUT_CB(_thread)		\
+    if (_st_this_vp.switch_out_cb != NULL &&	\
+        _thread != _st_this_vp.idle_thread &&	\
+        _thread->state != _ST_ST_ZOMBIE) {	\
+      _st_this_vp.switch_out_cb();		\
+    }
+#define ST_SWITCH_IN_CB(_thread)		\
+    if (_st_this_vp.switch_in_cb != NULL &&	\
+	_thread != _st_this_vp.idle_thread &&	\
+	_thread->state != _ST_ST_ZOMBIE) {	\
+      _st_this_vp.switch_in_cb();		\
+    }
+#else
+#define ST_SWITCH_OUT_CB(_thread)
+#define ST_SWITCH_IN_CB(_thread)
+#endif
+
 /*
  * Switch away from the current thread context by saving its state and
  * calling the thread scheduler
  */
 #define _ST_SWITCH_CONTEXT(_thread)       \
     ST_BEGIN_MACRO                        \
+    ST_SWITCH_OUT_CB(_thread);            \
     if (!MD_SETJMP((_thread)->context)) { \
       _st_vp_schedule();                  \
     }                                     \
     ST_DEBUG_ITERATE_THREADS();           \
+    ST_SWITCH_IN_CB(_thread);             \
     ST_END_MACRO
 
 /*
@@ -408,9 +440,7 @@ void _st_iterate_threads(void);
  */
 
 void _st_vp_schedule(void);
-void _st_vp_idle(void);
 void _st_vp_check_clock(void);
-void _st_find_bad_fd(void);
 void *_st_idle_thread_start(void *arg);
 void _st_thread_main(void);
 void _st_thread_cleanup(_st_thread_t *thread);

@@ -72,6 +72,7 @@ int _st_io_init(void)
 {
   struct sigaction sigact;
   struct rlimit rlim;
+  int fdlim;
 
   /* Ignore SIGPIPE */
   sigact.sa_handler = SIG_IGN;
@@ -83,10 +84,11 @@ int _st_io_init(void)
   /* Set maximum number of open file descriptors */
   if (getrlimit(RLIMIT_NOFILE, &rlim) < 0)
     return -1;
-#ifndef USE_POLL
-  if (rlim.rlim_max > FD_SETSIZE)
-    rlim.rlim_max = FD_SETSIZE;
-#endif
+
+  fdlim = (*_st_eventsys->fd_getlimit)();
+  if (fdlim > 0 && rlim.rlim_max > (rlim_t) fdlim) {
+    rlim.rlim_max = fdlim;
+  }
   rlim.rlim_cur = rlim.rlim_max;
   if (setrlimit(RLIMIT_NOFILE, &rlim) < 0)
     return -1;
@@ -124,12 +126,8 @@ static _st_netfd_t *_st_netfd_new(int osfd, int nonblock, int is_socket)
   _st_netfd_t *fd;
   int flags = 1;
 
-#ifndef USE_POLL
-  if (osfd >= FD_SETSIZE) {
-    errno = EMFILE;
+  if ((*_st_eventsys->fd_new)(osfd) < 0)
     return NULL;
-  }
-#endif
 
   if (_st_netfd_freelist) {
     fd = _st_netfd_freelist;
@@ -174,6 +172,9 @@ _st_netfd_t *st_netfd_open_socket(int osfd)
 
 int st_netfd_close(_st_netfd_t *fd)
 {
+  if ((*_st_eventsys->fd_close)(fd->osfd) < 0)
+    return -1;
+
   st_netfd_free(fd);
   return close(fd->osfd);
 }
@@ -450,19 +451,68 @@ ssize_t st_read(_st_netfd_t *fd, void *buf, size_t nbyte, st_utime_t timeout)
 int st_read_resid(_st_netfd_t *fd, void *buf, size_t *resid,
 		  st_utime_t timeout)
 {
+  struct iovec iov, *riov;
+  int riov_size, rv;
+
+  iov.iov_base = buf;
+  iov.iov_len = *resid;
+  riov = &iov;
+  riov_size = 1;
+  rv = st_readv_resid(fd, &riov, &riov_size, timeout);
+  *resid = iov.iov_len;
+  return rv;
+}
+
+
+ssize_t st_readv(_st_netfd_t *fd, const struct iovec *iov, int iov_size,
+		 st_utime_t timeout)
+{
   ssize_t n;
 
-  while (*resid > 0) {
-    if ((n = read(fd->osfd, buf, *resid)) < 0) {
+  while ((n = readv(fd->osfd, iov, iov_size)) < 0) {
+    if (errno == EINTR)
+      continue;
+    if (!_IO_NOT_READY_ERROR)
+      return -1;
+    /* Wait until the socket becomes readable */
+    if (st_netfd_poll(fd, POLLIN, timeout) < 0)
+      return -1;
+  }
+
+  return n;
+}
+
+int st_readv_resid(_st_netfd_t *fd, struct iovec **iov, int *iov_size,
+		   st_utime_t timeout)
+{
+  ssize_t n;
+
+  while (*iov_size > 0) {
+    if (*iov_size == 1)
+      n = read(fd->osfd, (*iov)->iov_base, (*iov)->iov_len);
+    else
+      n = readv(fd->osfd, *iov, *iov_size);
+    if (n < 0) {
       if (errno == EINTR)
 	continue;
       if (!_IO_NOT_READY_ERROR)
 	return -1;
-    } else {
-      *resid -= n;
-      if (*resid == 0 || n == 0)
+    } else if (n == 0)
+      break;
+    else {
+      while ((size_t) n >= (*iov)->iov_len) {
+	n -= (*iov)->iov_len;
+	(*iov)->iov_base = (char *) (*iov)->iov_base + (*iov)->iov_len;
+	(*iov)->iov_len = 0;
+	(*iov)++;
+	(*iov_size)--;
+	if (n == 0)
+	  break;
+      }
+      if (*iov_size == 0)
 	break;
-      buf = (void *)((char *)buf + n);
+      (*iov)->iov_base = (char *) (*iov)->iov_base + n;
+      (*iov)->iov_len -= n;
     }
     /* Wait until the socket becomes readable */
     if (st_netfd_poll(fd, POLLIN, timeout) < 0)
@@ -485,26 +535,16 @@ ssize_t st_read_fully(_st_netfd_t *fd, void *buf, size_t nbyte,
 int st_write_resid(_st_netfd_t *fd, const void *buf, size_t *resid,
 		   st_utime_t timeout)
 {
-  ssize_t n;
+  struct iovec iov, *riov;
+  int riov_size, rv;
 
-  while (*resid > 0) {
-    if ((n = write(fd->osfd, buf, *resid)) < 0) {
-      if (errno == EINTR)
-	continue;
-      if (!_IO_NOT_READY_ERROR)
-	return -1;
-    } else {
-      *resid -= n;
-      if (*resid == 0)
-	break;
-      buf = (const void *)((const char *)buf + n);
-    }
-    /* Wait until the socket becomes writable */
-    if (st_netfd_poll(fd, POLLOUT, timeout) < 0)
-      return -1;
-  }
-
-  return 0;
+  iov.iov_base = (void *) buf;	    /* we promise not to modify buf */
+  iov.iov_len = *resid;
+  riov = &iov;
+  riov_size = 1;
+  rv = st_writev_resid(fd, &riov, &riov_size, timeout);
+  *resid = iov.iov_len;
+  return rv;
 }
 
 
@@ -538,7 +578,7 @@ ssize_t st_writev(_st_netfd_t *fd, const struct iovec *iov, int iov_size,
 
   while (nleft > 0) {
     if (iov_cnt == 1) {
-      if (st_write(fd, tmp_iov[0].iov_base, nleft, timeout) != nleft)
+      if (st_write(fd, tmp_iov[0].iov_base, nleft, timeout) != (ssize_t) nleft)
 	rv = -1;
       break;
     }
@@ -550,12 +590,12 @@ ssize_t st_writev(_st_netfd_t *fd, const struct iovec *iov, int iov_size,
 	break;
       }
     } else {
-      if (n == nleft)
+      if ((size_t) n == nleft)
 	break;
       nleft -= n;
       /* Find the next unwritten vector */
       n = (ssize_t)(nbyte - nleft);
-      for (index = 0; n >= iov[index].iov_len; index++)
+      for (index = 0; (size_t) n >= iov[index].iov_len; index++)
 	n -= iov[index].iov_len;
 
       if (tmp_iov == iov) {
@@ -590,6 +630,45 @@ ssize_t st_writev(_st_netfd_t *fd, const struct iovec *iov, int iov_size,
     free(tmp_iov);
 
   return rv;
+}
+
+
+int st_writev_resid(_st_netfd_t *fd, struct iovec **iov, int *iov_size,
+		    st_utime_t timeout)
+{
+  ssize_t n;
+
+  while (*iov_size > 0) {
+    if (*iov_size == 1)
+      n = write(fd->osfd, (*iov)->iov_base, (*iov)->iov_len);
+    else
+      n = writev(fd->osfd, *iov, *iov_size);
+    if (n < 0) {
+      if (errno == EINTR)
+	continue;
+      if (!_IO_NOT_READY_ERROR)
+	return -1;
+    } else {
+      while ((size_t) n >= (*iov)->iov_len) {
+	n -= (*iov)->iov_len;
+	(*iov)->iov_base = (char *) (*iov)->iov_base + (*iov)->iov_len;
+	(*iov)->iov_len = 0;
+	(*iov)++;
+	(*iov_size)--;
+	if (n == 0)
+	  break;
+      }
+      if (*iov_size == 0)
+	break;
+      (*iov)->iov_base = (char *) (*iov)->iov_base + n;
+      (*iov)->iov_len -= n;
+    }
+    /* Wait until the socket becomes writable */
+    if (st_netfd_poll(fd, POLLOUT, timeout) < 0)
+      return -1;
+  }
+
+  return 0;
 }
 
 
@@ -633,6 +712,45 @@ int st_sendto(_st_netfd_t *fd, const void *msg, int len,
 
   return n;
 }
+
+
+int st_recvmsg(_st_netfd_t *fd, struct msghdr *msg, int flags,
+	       st_utime_t timeout)
+{
+  int n;
+
+  while ((n = recvmsg(fd->osfd, msg, flags)) < 0) {
+    if (errno == EINTR)
+      continue;
+    if (!_IO_NOT_READY_ERROR)
+      return -1;
+    /* Wait until the socket becomes readable */
+    if (st_netfd_poll(fd, POLLIN, timeout) < 0)
+      return -1;
+  }
+
+  return n;
+}
+
+
+int st_sendmsg(_st_netfd_t *fd, const struct msghdr *msg, int flags,
+	       st_utime_t timeout)
+{
+  int n;
+
+  while ((n = sendmsg(fd->osfd, msg, flags)) < 0) {
+    if (errno == EINTR)
+      continue;
+    if (!_IO_NOT_READY_ERROR)
+      return -1;
+    /* Wait until the socket becomes writable */
+    if (st_netfd_poll(fd, POLLOUT, timeout) < 0)
+      return -1;
+  }
+
+  return n;
+}
+
 
 
 /*

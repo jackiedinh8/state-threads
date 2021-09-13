@@ -30,7 +30,6 @@ case "$sys_info" in
   *-freebsd*      ) OS=FREEBSD    ;;
   hppa*-hp-hpux11*) OS=HPUX       ;;
   *-sgi-irix6*    ) OS=IRIX       ;;
-  ia64-*-linux*   ) OS=LINUX_IA64 ;;
   *-linux*        ) OS=LINUX      ;;
   *-netbsd*       ) OS=NETBSD     ;;
   *-openbsd*      ) OS=OPENBSD    ;;

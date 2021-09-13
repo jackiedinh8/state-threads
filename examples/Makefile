@@ -78,6 +78,10 @@ endif
 # Platform section.
 #
 
+ifeq (DARWIN, $(findstring DARWIN, $(OS)))
+LIBRESOLV   = -lresolv
+endif
+
 ifeq (LINUX, $(findstring LINUX, $(OS)))
 LIBRESOLV   = -lresolv
 endif

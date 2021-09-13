@@ -33,20 +33,20 @@
 # GPL.
 
 # This is the full version of the libst library - modify carefully
-VERSION     = 1.5.1
+VERSION     = 1.9
 
 ##########################
 # Supported OSes:
 #
 #OS         = AIX
 #OS         = CYGWIN
+#OS         = DARWIN
 #OS         = FREEBSD
 #OS         = HPUX
 #OS         = HPUX_64
 #OS         = IRIX
 #OS         = IRIX_64
 #OS         = LINUX
-#OS         = LINUX_IA64
 #OS         = NETBSD
 #OS         = OPENBSD
 #OS         = OSF1
@@ -92,7 +92,6 @@ TARGETS     = aix-debug aix-optimized               \
               irix-n32-debug irix-n32-optimized     \
               irix-64-debug irix-64-optimized       \
               linux-debug linux-optimized           \
-              linux-ia64-debug linux-ia64-optimized \
               netbsd-debug netbsd-optimized         \
               openbsd-debug openbsd-optimized       \
               osf1-debug osf1-optimized             \
@@ -132,7 +131,18 @@ ifeq ($(OS), DARWIN)
 LD          = cc
 SFLAGS      = -fPIC -fno-common
 DSO_SUFFIX  = dylib
-LDFLAGS     = -dynamiclib -install_name /sw/lib/libst.$(MAJOR).$(DSO_SUFFIX) -compatibility_version $(MAJOR) -current_version $(VERSION)
+RELEASE     = $(shell uname -r | cut -d. -f1)
+PPC         = $(shell test $(RELEASE) -le 9 && echo yes)
+INTEL       = $(shell test $(RELEASE) -ge 9 && echo yes)
+ifeq ($(PPC), yes)
+CFLAGS      += -arch ppc
+LDFLAGS     += -arch ppc
+endif
+ifeq ($(INTEL), yes)
+CFLAGS      += -arch i386 -arch x86_64
+LDFLAGS     += -arch i386 -arch x86_64
+endif
+LDFLAGS     += -dynamiclib -install_name /sw/lib/libst.$(MAJOR).$(DSO_SUFFIX) -compatibility_version $(MAJOR) -current_version $(VERSION)
 OTHER_FLAGS = -Wall
 endif
 
@@ -140,6 +150,9 @@ ifeq ($(OS), FREEBSD)
 SFLAGS      = -fPIC
 LDFLAGS     = -shared -soname=$(SONAME) -lc
 OTHER_FLAGS = -Wall
+ifeq ($(shell test -f /usr/include/sys/event.h && echo yes), yes)
+DEFINES     += -DMD_HAVE_KQUEUE
+endif
 endif
 
 ifeq (HPUX, $(findstring HPUX, $(OS)))
@@ -167,14 +180,14 @@ LDFLAGS     = $(ABIFLAG) -shared
 OTHER_FLAGS = -fullwarn
 endif
 
-ifeq (LINUX, $(findstring LINUX, $(OS)))
-ifeq ($(OS), LINUX_IA64)
-DEFINES     = -DLINUX
-EXTRA_OBJS  = $(TARGETDIR)/ia64asm.o
-endif
+ifeq ($(OS), LINUX)
+EXTRA_OBJS  = $(TARGETDIR)/md.o
 SFLAGS      = -fPIC
 LDFLAGS     = -shared -soname=$(SONAME) -lc
 OTHER_FLAGS = -Wall
+ifeq ($(shell test -f /usr/include/sys/epoll.h && echo yes), yes)
+DEFINES     += -DMD_HAVE_EPOLL
+endif
 endif
 
 ifeq ($(OS), NETBSD)
@@ -187,6 +200,9 @@ ifeq ($(OS), OPENBSD)
 SFLAGS      = -fPIC
 LDFLAGS     = -shared -soname=$(SONAME) -lc
 OTHER_FLAGS = -Wall
+ifeq ($(shell test -f /usr/include/sys/event.h && echo yes), yes)
+DEFINES     += -DMD_HAVE_KQUEUE
+endif
 endif
 
 ifeq ($(OS), OSF1)
@@ -239,15 +255,42 @@ endif
 #
 # To use malloc(3) instead of mmap(2) for stack allocation:
 # DEFINES += -DMALLOC_STACK
+#
+# To provision more than the default 16 thread-specific-data keys
+# (but not too many!):
+# DEFINES += -DST_KEYS_MAX=<n>
+#
+# To start with more than the default 64 initial pollfd slots
+# (but the table grows dynamically anyway):
+# DEFINES += -DST_MIN_POLLFDS_SIZE=<n>
+#
+# Note that you can also add these defines by specifying them as
+# make/gmake arguments (without editing this Makefile). For example:
+#
+# make EXTRA_CFLAGS=-DUSE_POLL <target>
+#
+# (replace make with gmake if needed).
+#
+# You can also modify the default selection of an alternative event
+# notification mechanism. E.g., to enable kqueue(2) support (if it's not
+# enabled by default):
+#
+# gmake EXTRA_CFLAGS=-DMD_HAVE_KQUEUE <target>
+#
+# or to disable default epoll(4) support:
+#
+# make EXTRA_CFLAGS=-UMD_HAVE_EPOLL <target>
+#
 ##########################
 
-CFLAGS      += $(DEFINES) $(OTHER_FLAGS)
+CFLAGS      += $(DEFINES) $(OTHER_FLAGS) $(EXTRA_CFLAGS)
 
 OBJS        = $(TARGETDIR)/sched.o \
               $(TARGETDIR)/stk.o   \
               $(TARGETDIR)/sync.o  \
               $(TARGETDIR)/key.o   \
-              $(TARGETDIR)/io.o
+              $(TARGETDIR)/io.o    \
+              $(TARGETDIR)/event.o
 OBJS        += $(EXTRA_OBJS)
 HEADER      = $(TARGETDIR)/st.h
 SLIBRARY    = $(TARGETDIR)/libst.a
@@ -318,13 +361,14 @@ $(HEADER): public.h
 	rm -f $@
 	cp public.h $@
 
-$(TARGETDIR)/%asm.o: %asm.S
+$(TARGETDIR)/md.o: md.S
 	$(CC) $(CFLAGS) -c $< -o $@
 
 $(TARGETDIR)/%.o: %.c common.h md.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
 examples::
+	@echo Making $@
 	@cd $@; $(MAKE) CC="$(CC)" CFLAGS="$(CFLAGS)" OS="$(OS)" TARGETDIR="$(TARGETDIR)"
 
 clean:
@@ -393,10 +437,9 @@ linux-debug:
 	$(MAKE) OS="LINUX" BUILD="DBG"
 linux-optimized:
 	$(MAKE) OS="LINUX" BUILD="OPT"
-linux-ia64-debug:
-	$(MAKE) OS="LINUX_IA64" BUILD="DBG"
-linux-ia64-optimized:
-	$(MAKE) OS="LINUX_IA64" BUILD="OPT"
+# compatibility
+linux-ia64-debug: linux-debug
+linux-ia64-optimized: linux-optimized
 
 netbsd-debug:
 	$(MAKE) OS="NETBSD" BUILD="DBG"

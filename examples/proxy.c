@@ -44,12 +44,22 @@
 
 #define IOBUFSIZE (16*1024)
 
+#define IOV_LEN   256
+#define IOV_COUNT (IOBUFSIZE / IOV_LEN)
+
 #ifndef INADDR_NONE
 #define INADDR_NONE 0xffffffff
 #endif
 
 static char *prog;                     /* Program name   */
 static struct sockaddr_in rmt_addr;    /* Remote address */
+
+static unsigned long testing;
+#define TESTING_VERBOSE		0x1
+#define TESTING_READV		0x2
+#define	TESTING_READ_RESID	0x4
+#define TESTING_WRITEV		0x8
+#define TESTING_WRITE_RESID	0x10
 
 static void read_address(const char *str, struct sockaddr_in *sin);
 static void start_daemon(void);
@@ -69,17 +79,20 @@ int main(int argc, char *argv[])
 {
   extern char *optarg;
   int opt, sock, n;
-  int laddr, raddr, num_procs;
+  int laddr, raddr, num_procs, alt_ev, one_process;
   int serialize_accept = 0;
   struct sockaddr_in lcl_addr, cli_addr;
   st_netfd_t cli_nfd, srv_nfd;
 
   prog = argv[0];
-  num_procs = laddr = raddr = 0;
+  num_procs = laddr = raddr = alt_ev = one_process = 0;
 
   /* Parse arguments */
-  while((opt = getopt(argc, argv, "l:r:p:Sh")) != EOF) {
+  while((opt = getopt(argc, argv, "l:r:p:Saht:X")) != EOF) {
     switch (opt) {
+    case 'a':
+      alt_ev = 1;
+      break;
     case 'l':
       read_address(optarg, &lcl_addr);
       laddr = 1;
@@ -112,10 +125,24 @@ int main(int argc, char *argv[])
        */
       serialize_accept = 1;
       break;
+    case 't':
+      testing = strtoul(optarg, NULL, 0);
+      break;
+    case 'X':
+      one_process = 1;
+      break;
     case 'h':
     case '?':
-      fprintf(stderr, "Usage: %s -l <[host]:port> -r <host:port> "
-	      "[-p <num_processes>] [-S]\n", prog);
+      fprintf(stderr, "Usage: %s [options] -l <[host]:port> -r <host:port>\n",
+       prog);
+      fprintf(stderr, "options are:\n");
+      fprintf(stderr, "  -p <num_processes>	number of parallel processes\n");
+      fprintf(stderr, "  -S			serialize accepts\n");
+      fprintf(stderr, "  -a			use alternate event system\n");
+#ifdef DEBUG
+      fprintf(stderr, "  -t mask		testing/debugging mode\n");
+      fprintf(stderr, "  -X			one process, don't daemonize\n");
+#endif
       exit(1);
     }
   }
@@ -134,7 +161,13 @@ int main(int argc, char *argv[])
 	  inet_ntoa(lcl_addr.sin_addr), ntohs(lcl_addr.sin_port));
 
   /* Start the daemon */
-  start_daemon();
+  if (one_process)
+    num_procs = 1;
+  else
+    start_daemon();
+
+  if (alt_ev)
+    st_set_eventsys(ST_EVENTSYS_ALT);
 
   /* Initialize the ST library */
   if (st_init() < 0) {
@@ -169,11 +202,13 @@ int main(int argc, char *argv[])
   }
 
   /* Start server processes */
-  set_concurrency(num_procs);
+  if (!one_process)
+    set_concurrency(num_procs);
 
   for ( ; ; ) {
     n = sizeof(cli_addr);
-    cli_nfd = st_accept(srv_nfd, (struct sockaddr *)&cli_addr, &n, -1);
+    cli_nfd = st_accept(srv_nfd, (struct sockaddr *)&cli_addr, &n,
+     ST_UTIME_NO_TIMEOUT);
     if (cli_nfd == NULL) {
       print_sys_error("st_accept");
       exit(1);
@@ -193,7 +228,7 @@ static void read_address(const char *str, struct sockaddr_in *sin)
 {
   char host[128], *p;
   struct hostent *hp;
-  short port;
+  unsigned short port;
 
   strcpy(host, str);
   if ((p = strchr(host, ':')) == NULL) {
@@ -201,7 +236,7 @@ static void read_address(const char *str, struct sockaddr_in *sin)
     exit(1);
   }
   *p++ = '\0';
-  port = (short) atoi(p);
+  port = (unsigned short) atoi(p);
   if (port < 1) {
     fprintf(stderr, "%s: invalid port: %s\n", prog, p);
     exit(1);
@@ -225,12 +260,152 @@ static void read_address(const char *str, struct sockaddr_in *sin)
   }
 }
 
+#ifdef DEBUG
+static void show_iov(const struct iovec *iov, int niov)
+{
+  int i;
+  size_t total;
+
+  printf("iov %p has %d entries:\n", iov, niov);
+  total = 0;
+  for (i = 0; i < niov; i++) {
+    printf("iov[%3d] iov_base=%p iov_len=0x%lx(%lu)\n",
+     i, iov[i].iov_base, (unsigned long) iov[i].iov_len,
+     (unsigned long) iov[i].iov_len);
+    total += iov[i].iov_len;
+  }
+  printf("total 0x%lx(%ld)\n", (unsigned long) total, (unsigned long) total);
+}
+
+/*
+ * This version is tricked out to test all the
+ * st_(read|write)v?(_resid)? variants.  Use the non-DEBUG version for
+ * anything serious.  st_(read|write) are all this function really
+ * needs.
+ */
+static int pass(st_netfd_t in, st_netfd_t out)
+{
+  char buf[IOBUFSIZE];
+  struct iovec iov[IOV_COUNT];
+  int ioviter, nw, nr;
+
+  if (testing & TESTING_READV) {
+    for (ioviter = 0; ioviter < IOV_COUNT; ioviter++) {
+      iov[ioviter].iov_base = &buf[ioviter * IOV_LEN];
+      iov[ioviter].iov_len = IOV_LEN;
+    }
+    if (testing & TESTING_VERBOSE) {
+      printf("readv(%p)...\n", in);
+      show_iov(iov, IOV_COUNT);
+    }
+    if (testing & TESTING_READ_RESID) {
+      struct iovec *riov = iov;
+      int riov_cnt = IOV_COUNT;
+      if (st_readv_resid(in, &riov, &riov_cnt, ST_UTIME_NO_TIMEOUT) == 0) {
+	if (testing & TESTING_VERBOSE) {
+	  printf("resid\n");
+	  show_iov(riov, riov_cnt);
+	  printf("full\n");
+	  show_iov(iov, IOV_COUNT);
+	}
+	nr = 0;
+	for (ioviter = 0; ioviter < IOV_COUNT; ioviter++)
+	  nr += iov[ioviter].iov_len;
+	nr = IOBUFSIZE - nr;
+      } else
+	nr = -1;
+    } else
+      nr = (int) st_readv(in, iov, IOV_COUNT, ST_UTIME_NO_TIMEOUT);
+  } else {
+    if (testing & TESTING_READ_RESID) {
+      size_t resid = IOBUFSIZE;
+      if (st_read_resid(in, buf, &resid, ST_UTIME_NO_TIMEOUT) == 0)
+	nr = IOBUFSIZE - resid;
+      else
+	nr = -1;
+    } else
+      nr = (int) st_read(in, buf, IOBUFSIZE, ST_UTIME_NO_TIMEOUT);
+  }
+  if (testing & TESTING_VERBOSE)
+    printf("got 0x%x(%d) E=%d\n", nr, nr, errno);
+
+  if (nr <= 0)
+    return 0;
+
+  if (testing & TESTING_WRITEV) {
+    for (nw = 0, ioviter = 0; nw < nr;
+     nw += iov[ioviter].iov_len, ioviter++) {
+      iov[ioviter].iov_base = &buf[nw];
+      iov[ioviter].iov_len = nr - nw;
+      if (iov[ioviter].iov_len > IOV_LEN)
+	iov[ioviter].iov_len = IOV_LEN;
+    }
+    if (testing & TESTING_VERBOSE) {
+      printf("writev(%p)...\n", out);
+      show_iov(iov, ioviter);
+    }
+    if (testing & TESTING_WRITE_RESID) {
+      struct iovec *riov = iov;
+      int riov_cnt = ioviter;
+      if (st_writev_resid(out, &riov, &riov_cnt, ST_UTIME_NO_TIMEOUT) == 0) {
+	if (testing & TESTING_VERBOSE) {
+	  printf("resid\n");
+	  show_iov(riov, riov_cnt);
+	  printf("full\n");
+	  show_iov(iov, ioviter);
+	}
+	nw = 0;
+	while (--ioviter >= 0)
+	  nw += iov[ioviter].iov_len;
+	nw = nr - nw;
+      } else
+	nw = -1;
+    } else
+      nw = st_writev(out, iov, ioviter, ST_UTIME_NO_TIMEOUT);
+  } else {
+    if (testing & TESTING_WRITE_RESID) {
+      size_t resid = nr;
+      if (st_write_resid(out, buf, &resid, ST_UTIME_NO_TIMEOUT) == 0)
+	nw = nr - resid;
+      else
+	nw = -1;
+    } else
+      nw = st_write(out, buf, nr, ST_UTIME_NO_TIMEOUT);
+  }
+  if (testing & TESTING_VERBOSE)
+    printf("put 0x%x(%d) E=%d\n", nw, nw, errno);
+
+  if (nw != nr)
+    return 0;
+
+  return 1;
+}
+#else /* DEBUG */
+/*
+ * This version is the simple one suitable for serious use.
+ */
+static int pass(st_netfd_t in, st_netfd_t out)
+{
+  char buf[IOBUFSIZE];
+  int nw, nr;
+
+  nr = (int) st_read(in, buf, IOBUFSIZE, ST_UTIME_NO_TIMEOUT);
+  if (nr <= 0)
+    return 0;
+
+  nw = st_write(out, buf, nr, ST_UTIME_NO_TIMEOUT);
+  if (nw != nr)
+    return 0;
+
+  return 1;
+}
+#endif
+
 static void *handle_request(void *arg)
 {
   struct pollfd pds[2];
   st_netfd_t cli_nfd, rmt_nfd;
-  int sock, n;
-  char buf[IOBUFSIZE];
+  int sock;
 
   cli_nfd = (st_netfd_t) arg;
   pds[0].fd = st_netfd_fileno(cli_nfd);
@@ -247,7 +422,7 @@ static void *handle_request(void *arg)
     goto done;
   }
   if (st_connect(rmt_nfd, (struct sockaddr *)&rmt_addr,
-		 sizeof(rmt_addr), -1) < 0) {
+		 sizeof(rmt_addr), ST_UTIME_NO_TIMEOUT) < 0) {
     print_sys_error("st_connect");
     st_netfd_close(rmt_nfd);
     goto done;
@@ -255,28 +430,27 @@ static void *handle_request(void *arg)
   pds[1].fd = sock;
   pds[1].events = POLLIN;
 
-  /* Now just pump the data through */
+  /*
+   * Now just pump the data through.
+   * XXX This should use one thread for each direction for true full-duplex.
+   */
   for ( ; ; ) {
     pds[0].revents = 0;
     pds[1].revents = 0;
 
-    if (st_poll(pds, 2, -1) <= 0) {
+    if (st_poll(pds, 2, ST_UTIME_NO_TIMEOUT) <= 0) {
       print_sys_error("st_poll");
       break;
     }
 
     if (pds[0].revents & POLLIN) {
-      if ((n = (int) st_read(cli_nfd, buf, IOBUFSIZE, -1)) <= 0)
-        break;
-      if (st_write(rmt_nfd, buf, n, -1) != n)
-        break;
+      if (!pass(cli_nfd, rmt_nfd))
+	break;
     }
 
     if (pds[1].revents & POLLIN) {
-      if ((n = (int) st_read(rmt_nfd, buf, IOBUFSIZE, -1)) <= 0)
-        break;
-      if (st_write(cli_nfd, buf, n, -1) != n)
-        break;
+      if (!pass(rmt_nfd, cli_nfd))
+	break;
     }
   }
   st_netfd_close(rmt_nfd);

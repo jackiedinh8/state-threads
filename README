@@ -198,6 +198,70 @@ Make selected stack frame return now? (y or n) y
 
 CHANGE LOG
 
+Changes from 1.8 to 1.9.
+------------------------
+o  Support 32-bit and 64-bit Intel Macs.
+
+o  Added ST_VERSION string, and ST_VERSION_MAJOR and ST_VERSION_MINOR
+   [bug 1796801].
+
+o  Fixed some compiler warnings, based on a patch from Brian Wellington
+   [bug 1932741].
+
+
+Changes from 1.7 to 1.8.
+--------------------------
+o  Added support for kqueue and epoll on platforms that support them.
+   Added ability to choose the event notification system at program
+   startup.
+
+o  Long-overdue public definitions of ST_UTIME_NO_TIMEOUT (-1ULL) and
+   ST_UTIME_NO_WAIT (0) [bug 1514436].
+
+o  Documentation patch for st_utime() [bug 1514484].
+
+o  Documentation patch for st_timecache_set() [bug 1514486].
+
+o  Documentation patch for st_netfd_serialize_accept() [bug 1514494].
+
+o  Added st_writev_resid() [rfe 1538344].
+
+o  Added st_readv_resid() [rfe 1538768] and, for symmetry, st_readv().
+
+
+Changes from 1.6 to 1.7.
+------------------------
+o  Support glibc 2.4, which breaks programs that manipulate jump buffers.
+   Replaced Linux IA64 special cases with new md.S that covers all
+   Linux.
+
+
+Changes from 1.5.2 to 1.6.
+--------------------------
+none
+
+
+Changes from 1.5.1 to 1.5.2.
+----------------------------
+o  Alfred Perlstein's context switch callback feature.
+
+o  Claus Assmann's st_recvmsg/st_sendmsg wrappers.
+
+o  Extra stack padding for platforms that need it.
+
+o  Ron Arts's timeout clarifications in the reference manual.
+
+o  Raymond Bero and Anton Berezin's AMD64 FreeBSD port.
+
+o  Claus Assmann's AMD64 SunOS 5.10 port.
+
+o  Claus Assmann's AMD64 OpenBSD port.
+
+o  Michael Abd-El-Malek's Mac OS X port.
+
+o  Michael Abd-El-Malek's stack printing patch.
+
+
 Changes from 1.5.0 to 1.5.1.
 ----------------------------
 o  Andreas Gustafsson's USE_POLL fix.
