@@ -290,6 +290,7 @@ OBJS        = $(TARGETDIR)/sched.o \
               $(TARGETDIR)/sync.o  \
               $(TARGETDIR)/key.o   \
               $(TARGETDIR)/io.o    \
+              $(TARGETDIR)/mempool.o    \
               $(TARGETDIR)/event.o
 OBJS        += $(EXTRA_OBJS)
 HEADER      = $(TARGETDIR)/st.h
@@ -325,7 +326,8 @@ endif
 ifeq ($(OS),)
 ST_ALL      = unknown
 else
-ST_ALL      = $(TARGETDIR) $(LIBRARIES) $(HEADER) $(EXAMPLES) $(DESC)
+#ST_ALL      = $(TARGETDIR) $(LIBRARIES) $(HEADER) $(EXAMPLES) $(DESC)
+ST_ALL      = $(TARGETDIR) $(LIBRARIES) $(HEADER) $(DESC)
 endif
 
 all: $(ST_ALL)

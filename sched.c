@@ -78,6 +78,8 @@ int st_poll(struct pollfd *pds, int npds, st_utime_t timeout)
   pq.npds = npds;
   pq.thread = me;
   pq.on_ioq = 1;
+  if (*_st_eventsys->pollq_add && (*_st_eventsys->pollq_add)(&pq))
+    return -1;
   _ST_ADD_IOQ(pq);
   if (timeout != ST_UTIME_NO_TIMEOUT)
     _ST_ADD_SLEEPQ(me, timeout);
@@ -141,8 +143,11 @@ int st_init(void)
   }
 
   /* We can ignore return value here */
+#ifdef MD_HAVE_EPOLL
+  st_set_eventsys(ST_EVENTSYS_ALT);
+#else
   st_set_eventsys(ST_EVENTSYS_DEFAULT);
-
+#endif
   if (_st_io_init() < 0)
     return -1;
 

@@ -202,6 +202,10 @@ typedef struct _st_pollq {
   int on_ioq;                 /* Is it on ioq? */
 } _st_pollq_t;
 
+typedef struct _st_pollq_list {
+  _st_pollq_t *pq;
+  struct _st_pollq_list *next;
+} st_pollq_list_t;
 
 typedef struct _st_eventsys_ops {
   const char *name;                          /* Name of this event system */
@@ -213,6 +217,8 @@ typedef struct _st_eventsys_ops {
   int  (*fd_new)(int);                       /* New descriptor allocated */
   int  (*fd_close)(int);                     /* Descriptor closed */
   int  (*fd_getlimit)(void);                 /* Descriptor hard limit */
+  int  (*pollq_add)(_st_pollq_t *pq);
+  void (*pollq_del)(_st_pollq_t *pq);
 } _st_eventsys_t;
 
 
